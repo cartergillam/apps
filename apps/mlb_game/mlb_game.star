@@ -1,12 +1,14 @@
 # mlb_score_patched.star
 # title: MLB Scoreboard (Photo Style • Bases Right • White-outlined filled bases • Centered counts)
-# description: Left = two team tiles (away/home). Right = bases + count. Pixlet 0.34.0
+# description: Left = two team tiles (away/home). Right = bases + count. Pixlet 0.50.1+
 
 load("encoding/json.star", "json")
 load("http.star", "http")
 load("render.star", "render")
 load("schema.star", "schema")
 load("time.star", "time")
+
+NO_GAME_RETRY = "30m"
 
 # ----------------------- Defaults (BOS @ NYY) ---------------------------------
 def default_game():
@@ -35,6 +37,7 @@ def default_game():
         "game_label": "",
         "has_game": False,
         "fetch_ok": False,
+        "failure_reason": "",
     }
 
 # ----------------------- Tiny helpers -----------------------------------------
@@ -112,10 +115,32 @@ def format_start_text(game_date, timezone):
         return t.format("3:04") + " " + suffix
     return t.format("3:04")
 
+def configured_timezone(config):
+    # Tronbyt injects the device timezone as $tz. Keep the older plain
+    # timezone key as a compatibility fallback for direct Pixlet configs.
+    tz = as_str(config.get("$tz"), "")
+    if tz == "":
+        tz = as_str(config.get("timezone"), "")
+    if tz == "" or tz == "Local":
+        tz = "America/Toronto"
+    return tz
+
+def schedule_request_window(now, timezone):
+    # Request a buffer around the device-local day. Selection below still uses
+    # the exact local date, so UTC midnight and month boundaries cannot move a
+    # device to tomorrow early.
+    local_now = now.in_location(timezone)
+    return {
+        "device_date": local_now.format("2006-01-02"),
+        "start_date": (local_now - time.parse_duration("36h")).format("2006-01-02"),
+        "end_date": (local_now + time.parse_duration("36h")).format("2006-01-02"),
+        "server_utc": now.in_location("UTC").format("2006-01-02T15:04:05Z"),
+    }
+
 # ----------------------- MLB lookup helpers -----------------------------------
 TEAM_BY_ID = {
     108: "LAA",
-    109: "AZ",
+    109: "ARI",
     110: "BAL",
     111: "BOS",
     112: "CHC",
@@ -144,7 +169,6 @@ TEAM_BY_ID = {
     146: "MIA",
     147: "NYY",
     158: "MIL",
-    159: "ARI",
 }
 
 TEAM_ID_BY_CODE = {
@@ -178,8 +202,19 @@ TEAM_ID_BY_CODE = {
     "MIA": 146,
     "NYY": 147,
     "MIL": 158,
-    "ARI": 159,
+    "ARI": 109,
 }
+
+def configured_team(value, fallback_id = 111):
+    if type(value) == "int" and value in TEAM_BY_ID:
+        return {"id": value, "code": TEAM_BY_ID[value]}
+    text = as_str(value, "")
+    if text in TEAM_ID_BY_CODE:
+        return {"id": TEAM_ID_BY_CODE[text], "code": text}
+    numeric = int_from_digits(text, 0)
+    if numeric in TEAM_BY_ID:
+        return {"id": numeric, "code": TEAM_BY_ID[numeric]}
+    return {"id": fallback_id, "code": TEAM_BY_ID.get(fallback_id, "BOS")}
 
 TEAM_BG = {
     "ARI": "#A71930",
@@ -616,11 +651,10 @@ def has_only_mlb_opponents(game, mlb_team_ids):
     home_team = home_info.get("team")
     return is_mlb_team(away_team, mlb_team_ids) and is_mlb_team(home_team, mlb_team_ids)
 
-def game_has_team_code(game, team_code):
+def game_has_team_id(game, team_id):
     if type(game) != "dict":
         return False
-    code = as_str(team_code, "")
-    if code == "":
+    if team_id <= 0:
         return True
     teams = game.get("teams")
     if type(teams) != "dict":
@@ -629,7 +663,18 @@ def game_has_team_code(game, team_code):
     home_info = teams.get("home")
     away_team = away_info.get("team") if type(away_info) == "dict" else None
     home_team = home_info.get("team") if type(home_info) == "dict" else None
-    return lookup_team_code(away_team) == code or lookup_team_code(home_team) == code
+    away_id = as_int(away_team.get("id"), 0) if type(away_team) == "dict" else 0
+    home_id = as_int(home_team.get("id"), 0) if type(home_team) == "dict" else 0
+    return away_id == team_id or home_id == team_id
+
+def game_local_date(game, timezone):
+    if type(game) != "dict":
+        return ""
+    official_date = as_str(game.get("officialDate"), "")
+    game_date = as_str(game.get("gameDate"), "")
+    if game_date != "" and len(game_date) >= 16:
+        return time.parse_time(game_date).in_location(timezone).format("2006-01-02")
+    return official_date
 
 def game_sort_key(game):
     if type(game) != "dict":
@@ -652,12 +697,12 @@ def game_rank(game):
         return 0
     state = as_str(status.get("abstractGameState"), "")
     detailed = as_str(status.get("detailedState"), "")
-    if state == "Live":
-        return 4
-    if state == "Preview" or detailed == "Scheduled" or detailed == "Pre-Game":
-        return 3
     if detailed == "Delayed Start" or detailed == "Postponed" or detailed == "Suspended":
         return 2
+    if state == "Live" or detailed == "In Progress" or detailed == "Manager Challenge" or detailed == "Review":
+        return 4
+    if state == "Preview" or detailed in ["Scheduled", "Pre-Game", "Warmup"]:
+        return 3
     if state == "Final":
         return 1
     return 0
@@ -677,7 +722,7 @@ def is_better_game(candidate, best):
         return c_key > b_key
     return c_key < b_key
 
-def select_game_info(games, include_exhibition_opponents, mlb_team_ids, selected_team_code):
+def select_game_info(games, include_exhibition_opponents, mlb_team_ids, selected_team_id):
     if type(games) != "list" or len(games) == 0:
         return None
 
@@ -687,11 +732,9 @@ def select_game_info(games, include_exhibition_opponents, mlb_team_ids, selected
             continue
         if not is_public_facing_game(g):
             continue
-        if not has_tracked_linescore(g):
-            continue
         if not include_exhibition_opponents and not has_only_mlb_opponents(g, mlb_team_ids):
             continue
-        if not game_has_team_code(g, selected_team_code):
+        if not game_has_team_id(g, selected_team_id):
             continue
         insert_at = len(ordered)
         g_key = game_sort_key(g)
@@ -728,6 +771,21 @@ def select_game_info(games, include_exhibition_opponents, mlb_team_ids, selected
         "game": best,
         "game_label": label,
     }
+
+def select_game_for_local_date(dates, device_date, timezone, include_exhibition_opponents, mlb_team_ids, selected_team_id):
+    games = []
+    if type(dates) != "list":
+        return None
+    for date_entry in dates:
+        if type(date_entry) != "dict":
+            continue
+        date_games = date_entry.get("games")
+        if type(date_games) != "list":
+            continue
+        for game in date_games:
+            if game_local_date(game, timezone) == device_date:
+                games.append(game)
+    return select_game_info(games, include_exhibition_opponents, mlb_team_ids, selected_team_id)
 
 # ----------------------- Bases (right-top tile) -------------------------------
 def base_diamond(filled):
@@ -894,8 +952,9 @@ def count_tile(inning, top_half, balls, strikes, outs, status_text, game_label):
     )
 
 # ----------------------- Team tiles (left half) -------------------------------
-def team_tile(bg, code3, score, logo_url):
-    fg = team_font_color(bg)
+def team_tile(bg, code3, score, logo_url, show_colored_background):
+    tile_bg = bg if show_colored_background else "#000000"
+    fg = team_font_color(tile_bg)
     left = render.Box(
         width = 14,
         child = render.Column(
@@ -927,12 +986,12 @@ def team_tile(bg, code3, score, logo_url):
         main_align = "start",
         cross_align = "center",
     )
-    return render.Box(color = bg, height = 16, padding = 1, child = row)
+    return render.Box(color = tile_bg, height = 16, padding = 1, child = row)
 
 # ----------------------- Panels ----------------------------------------------
-def left_panel(away, home, ascore, hscore, away_bg, home_bg, away_logo_url, home_logo_url):
-    away_tile = team_tile(away_bg, away, ascore, away_logo_url)
-    home_tile = team_tile(home_bg, home, hscore, home_logo_url)
+def left_panel(away, home, ascore, hscore, away_bg, home_bg, away_logo_url, home_logo_url, show_colored_background):
+    away_tile = team_tile(away_bg, away, ascore, away_logo_url, show_colored_background)
+    home_tile = team_tile(home_bg, home, hscore, home_logo_url, show_colored_background)
     return render.Box(
         width = 36,
         child = render.Column(
@@ -987,46 +1046,72 @@ def right_panel(on1, on2, on3, inning, top_half, balls, strikes, outs, is_final,
     )
 
 # ----------------------- Fetch + cache (no try/except) ------------------------
+def schedule_response_failure(status_code, body):
+    if status_code != 200:
+        return "schedule_http_" + str(status_code)
+    if body == None or len(body) == 0:
+        return "empty_schedule_response"
+    if body[0] != "{":
+        return "malformed_schedule_response"
+    return ""
+
 def get_game_data(config):
     d = default_game()
     espn_teams = get_espn_team_map()
     mlb_team_ids = get_mlb_team_ids()
     include_exhibition_opponents = config.bool("include_exhibition_opponents", False)
 
-    team_id = 111
-    team_code = as_str(config.get("team"), "")
-    if team_code in TEAM_ID_BY_CODE:
-        team_id = TEAM_ID_BY_CODE[team_code]
+    selected_team = configured_team(config.get("team"))
+    team_id = selected_team["id"]
 
-    schedule_url = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId=" + str(team_id) + "&hydrate=linescore"
+    timezone = configured_timezone(config)
+    request_window = schedule_request_window(time.now(), timezone)
+    schedule_url = (
+        "https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId=" + str(team_id) +
+        "&startDate=" + request_window["start_date"] +
+        "&endDate=" + request_window["end_date"] +
+        "&hydrate=linescore"
+    )
+    print(
+        "MLB schedule request: local_date=" + request_window["device_date"] +
+        " timezone=" + timezone +
+        " server_utc=" + request_window["server_utc"] +
+        " range=" + request_window["start_date"] + ".." + request_window["end_date"] +
+        " team_id=" + str(team_id),
+    )
 
     resp = http.get(url = schedule_url, ttl_seconds = 120)
-    if resp.status_code != 200:
-        return d
-
     body = resp.body()
-    if body == None or len(body) == 0:
-        return d
-
-    first = body[0]
-    if first != "{":
+    failure_reason = schedule_response_failure(resp.status_code, body)
+    if failure_reason != "":
+        d["failure_reason"] = failure_reason
         return d
 
     parsed = json.decode(body)
     if type(parsed) != "dict":
+        d["failure_reason"] = "malformed_schedule_response"
         return d
     d["fetch_ok"] = True
 
     dates = parsed.get("dates")
     if type(dates) != "list" or len(dates) == 0:
+        print("MLB schedule result: games_returned=0 hide_reason=no_dates")
         return d
 
-    day0 = dates[0]
-    if type(day0) != "dict":
-        return d
-
-    game_info = select_game_info(day0.get("games"), include_exhibition_opponents, mlb_team_ids, team_code)
+    games_returned = 0
+    for date_entry in dates:
+        if type(date_entry) == "dict" and type(date_entry.get("games")) == "list":
+            games_returned += len(date_entry.get("games"))
+    game_info = select_game_for_local_date(
+        dates,
+        request_window["device_date"],
+        timezone,
+        include_exhibition_opponents,
+        mlb_team_ids,
+        team_id,
+    )
     if type(game_info) != "dict":
+        print("MLB schedule result: games_returned=" + str(games_returned) + " selected_game_id=none hide_reason=no_eligible_local_game")
         return d
 
     game = game_info.get("game")
@@ -1040,10 +1125,17 @@ def get_game_data(config):
     if type(status) == "dict":
         state = as_str(status.get("abstractGameState"), "")
         d["is_final"] = (state == "Final")
-        d["is_preview"] = (state == "Preview")
+        detailed = as_str(status.get("detailedState"), "")
+        d["is_preview"] = state == "Preview" or detailed in ["Scheduled", "Pre-Game", "Warmup", "Delayed Start", "Postponed", "Suspended"]
+        print(
+            "MLB schedule result: games_returned=" + str(games_returned) +
+            " selected_game_id=" + as_text(game.get("gamePk"), "unknown") +
+            " selected_status=" + state + "/" + detailed +
+            " hide_reason=none",
+        )
 
     if d["is_preview"]:
-        d["start_text"] = format_start_text(as_str(game.get("gameDate"), ""), config.get("timezone"))
+        d["start_text"] = format_start_text(as_str(game.get("gameDate"), ""), timezone)
 
     teams = game.get("teams")
     if type(teams) == "dict":
@@ -1094,12 +1186,111 @@ def get_game_data(config):
     return d
 
 # ----------------------- Main -------------------------------------------------
+def assert_mlb_test(condition, message):
+    if not condition:
+        fail("MLB regression failed: " + message)
+
+def regression_game(game_pk, game_date, away_id, home_id, state, detailed, game_number = 1):
+    return {
+        "gamePk": game_pk,
+        "gameDate": game_date,
+        "officialDate": game_date[:10],
+        "gameType": "R",
+        "gameNumber": game_number,
+        "publicFacing": True,
+        "status": {"abstractGameState": state, "detailedState": detailed},
+        "teams": {
+            "away": {"team": {"id": away_id, "abbreviation": TEAM_BY_ID.get(away_id, "UNK")}},
+            "home": {"team": {"id": home_id, "abbreviation": TEAM_BY_ID.get(home_id, "UNK")}},
+        },
+        # A scheduled game legitimately has no tracked linescore before first pitch.
+        "linescore": {"innings": [], "teams": {}},
+    }
+
+def run_mlb_regression_tests():
+    timezone = "America/Toronto"
+    utc_after_midnight = time.parse_time("2026-08-01T01:00:00Z")
+    window = schedule_request_window(utc_after_midnight, timezone)
+    assert_mlb_test(window["device_date"] == "2026-07-31", "UTC midnight changed the Toronto date")
+    assert_mlb_test(window["start_date"] == "2026-07-30" and window["end_date"] == "2026-08-02", "safe month-boundary request range")
+
+    scheduled = regression_game(822782, "2026-07-31T23:07:00Z", 138, 141, "Preview", "Scheduled")
+    away = regression_game(822783, "2026-07-31T17:00:00Z", 141, 138, "Preview", "Pre-Game")
+    august_game = regression_game(822784, "2026-08-01T16:00:00Z", 138, 141, "Preview", "Scheduled")
+    dates = [
+        {"date": "2026-07-31", "games": [scheduled]},
+        {"date": "2026-08-01", "games": [august_game]},
+    ]
+    mlb_ids = {138: True, 141: True}
+    selected = select_game_for_local_date(dates, "2026-07-31", timezone, False, mlb_ids, 141)
+    assert_mlb_test(type(selected) == "dict", "scheduled Toronto game was filtered out")
+    assert_mlb_test(as_int(selected["game"].get("gamePk"), 0) == 822782, "Toronto home pregame selection")
+    assert_mlb_test(game_rank(scheduled) == 3, "scheduled pregame status is eligible")
+    assert_mlb_test(type(select_game_info([away], False, mlb_ids, 141)) == "dict", "Toronto away game selection")
+
+    after_utc_midnight = regression_game(822785, "2026-08-01T02:30:00Z", 138, 141, "Live", "In Progress")
+    selected = select_game_for_local_date([{"date": "2026-08-01", "games": [after_utc_midnight]}], "2026-07-31", timezone, False, mlb_ids, 141)
+    assert_mlb_test(type(selected) == "dict", "game after UTC midnight disappeared before local midnight")
+
+    first_final = regression_game(822786, "2026-07-31T17:00:00Z", 138, 141, "Final", "Final", 1)
+    second_scheduled = regression_game(822787, "2026-07-31T23:07:00Z", 138, 141, "Preview", "Warmup", 2)
+    selected = select_game_info([first_final, second_scheduled], False, mlb_ids, 141)
+    assert_mlb_test(as_int(selected["game"].get("gamePk"), 0) == 822787 and selected["game_label"] == "G2", "doubleheader selection")
+
+    postponed = regression_game(822788, "2026-07-31T23:07:00Z", 138, 141, "Preview", "Postponed")
+    delayed = regression_game(822789, "2026-07-31T23:07:00Z", 138, 141, "Preview", "Delayed Start")
+    suspended = regression_game(822790, "2026-07-31T23:07:00Z", 138, 141, "Live", "Suspended")
+    live = regression_game(822791, "2026-07-31T23:07:00Z", 138, 141, "Live", "In Progress")
+    assert_mlb_test(type(select_game_info([postponed], False, mlb_ids, 141)) == "dict", "postponed game was hidden")
+    assert_mlb_test(game_rank(delayed) == 2, "delayed game status")
+    assert_mlb_test(game_rank(suspended) == 2, "suspended game status")
+    assert_mlb_test(game_rank(live) == 4, "live game status")
+    assert_mlb_test(game_rank(first_final) == 1, "final game status")
+    assert_mlb_test(select_game_info([scheduled], False, mlb_ids, 147) == None, "wrong team ID matched")
+    assert_mlb_test(configured_team("TOR")["id"] == 141 and configured_team("141")["id"] == 141 and configured_team(141)["code"] == "TOR", "team abbreviation/numeric mapping")
+    assert_mlb_test(select_game_for_local_date([], "2026-07-31", timezone, False, mlb_ids, 141) == None, "empty response handling")
+    assert_mlb_test(select_game_for_local_date([{"games": "invalid"}, "invalid"], "2026-07-31", timezone, False, mlb_ids, 141) == None, "malformed response shape")
+    assert_mlb_test(schedule_response_failure(503, "{}") == "schedule_http_503", "upstream failure classification")
+    assert_mlb_test(schedule_response_failure(200, "not-json") == "malformed_schedule_response", "malformed response classification")
+    assert_mlb_test(NO_GAME_RETRY == "30m", "no-game retry must remain bounded")
+    print("MLB regression tests passed")
+
 def main(config):
-    d = get_game_data(config)
+    if config.bool("__run_regression_tests", False):
+        run_mlb_regression_tests()
+        return render.Root(child = render.Box(width = 64, height = 36, color = "#00ff00"))
+
+    if config.bool("__fixture_render", False):
+        d = default_game()
+        d["has_game"] = True
+        d["fetch_ok"] = True
+
+        # Synthetic codes deliberately have no remote logo mapping, keeping this
+        # gallery fixture deterministic and fully offline.
+        d["away"] = "AWY"
+        d["home"] = "HME"
+        d["away_bg"] = "#134A8E"
+        d["home_bg"] = "#C41E3A"
+        d["is_preview"] = True
+        d["start_text"] = "7:07 PM"
+    else:
+        d = get_game_data(config)
+
+    if config.bool("gameday_only", False) and not d["fetch_ok"]:
+        print("TRONBYT-RENDER-FAILURE: " + as_str(d["failure_reason"], "schedule_unavailable"))
+        return []
 
     if config.bool("gameday_only", False) and d["fetch_ok"] and not d["has_game"]:
         print("--- APPLET HIDDEN FROM ROTATION (NO GAME TODAY) ---")
+        next_check = time.now() + time.parse_duration(NO_GAME_RETRY)
+        print("TRONBYT-HIDDEN-UNTIL: " + next_check.in_location("UTC").format("2006-01-02T15:04:05Z"))
         return []
+
+    show_colored_background = config.bool("show_team_colored_logo_background", True)
+
+    # Compatibility for installations created by an earlier iOS-only spelling.
+    if config.get("show_team_colored_logo_background") == None and config.get("show_team_coloured_logo_background") != None:
+        show_colored_background = config.bool("show_team_coloured_logo_background", True)
 
     # Optional manual overrides
     for k in ["away", "home", "away_mark", "home_mark", "inning", "away_bg", "home_bg"]:
@@ -1129,6 +1320,7 @@ def main(config):
                         d["home_bg"],
                         d["away_logo_url"],
                         d["home_logo_url"],
+                        show_colored_background,
                     ),
                     right_panel(
                         d["on1"],
@@ -1177,128 +1369,135 @@ def get_schema():
                 icon = "gear",
                 default = False,
             ),
+            schema.Toggle(
+                id = "show_team_colored_logo_background",
+                name = "Team-colored logo background",
+                desc = "Show each team logo and score on the team's color. Turn off for a clean black background.",
+                icon = "baseball",
+                default = True,
+            ),
         ],
     )
 
 teamOptions = [
     schema.Option(
         display = "Arizona Diamondbacks",
-        value = "ARI",
+        value = "109",
     ),
     schema.Option(
         display = "Athletics",
-        value = "ATH",
+        value = "133",
     ),
     schema.Option(
         display = "Atlanta Braves",
-        value = "ATL",
+        value = "144",
     ),
     schema.Option(
         display = "Baltimore Orioles",
-        value = "BAL",
+        value = "110",
     ),
     schema.Option(
         display = "Boston Red Sox",
-        value = "BOS",
+        value = "111",
     ),
     schema.Option(
         display = "Chicago Cubs",
-        value = "CHC",
+        value = "112",
     ),
     schema.Option(
         display = "Chicago White Sox",
-        value = "CWS",
+        value = "145",
     ),
     schema.Option(
         display = "Cincinnati Reds",
-        value = "CIN",
+        value = "113",
     ),
     schema.Option(
         display = "Cleveland Guardians",
-        value = "CLE",
+        value = "114",
     ),
     schema.Option(
         display = "Colorado Rockies",
-        value = "COL",
+        value = "115",
     ),
     schema.Option(
         display = "Detroit Tigers",
-        value = "DET",
+        value = "116",
     ),
     schema.Option(
         display = "Houston Astros",
-        value = "HOU",
+        value = "117",
     ),
     schema.Option(
         display = "Kansas City Royals",
-        value = "KC",
+        value = "118",
     ),
     schema.Option(
         display = "Los Angeles Angels",
-        value = "LAA",
+        value = "108",
     ),
     schema.Option(
         display = "Los Angeles Dodgers",
-        value = "LAD",
+        value = "119",
     ),
     schema.Option(
         display = "Miami Marlins",
-        value = "MIA",
+        value = "146",
     ),
     schema.Option(
         display = "Milwaukee Brewers",
-        value = "MIL",
+        value = "158",
     ),
     schema.Option(
         display = "Minnesota Twins",
-        value = "MIN",
+        value = "142",
     ),
     schema.Option(
         display = "New York Mets",
-        value = "NYM",
+        value = "121",
     ),
     schema.Option(
         display = "New York Yankees",
-        value = "NYY",
+        value = "147",
     ),
     schema.Option(
         display = "Philadelphia Phillies",
-        value = "PHI",
+        value = "143",
     ),
     schema.Option(
         display = "Pittsburgh Pirates",
-        value = "PIT",
+        value = "134",
     ),
     schema.Option(
         display = "San Diego Padres",
-        value = "SD",
+        value = "135",
     ),
     schema.Option(
         display = "San Francisco Giants",
-        value = "SF",
+        value = "137",
     ),
     schema.Option(
         display = "Seattle Mariners",
-        value = "SEA",
+        value = "136",
     ),
     schema.Option(
         display = "St. Louis Cardinals",
-        value = "STL",
+        value = "138",
     ),
     schema.Option(
         display = "Tampa Bay Rays",
-        value = "TB",
+        value = "139",
     ),
     schema.Option(
         display = "Texas Rangers",
-        value = "TEX",
+        value = "140",
     ),
     schema.Option(
         display = "Toronto Blue Jays",
-        value = "TOR",
+        value = "141",
     ),
     schema.Option(
         display = "Washington Nationals",
-        value = "WSH",
+        value = "120",
     ),
 ]
