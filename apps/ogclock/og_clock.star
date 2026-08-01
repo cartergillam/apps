@@ -133,6 +133,57 @@ def get_openweather_air_pollution(api_key, latitude, longitude):
     air_quality["index"] = int(res.json()["list"][0]["main"]["aqi"])
     return air_quality
 
+def configured_timezone(location_timezone, timezone_source, custom_timezone):
+    if timezone_source == "custom" and custom_timezone != "":
+        return custom_timezone
+    return location_timezone
+
+def next_minute_boundary(now):
+    return now + time.parse_duration(str(60 - now.second) + "s")
+
+def clock_text(now, use_24_hour):
+    if use_24_hour:
+        return {
+            "hour": now.format("15"),
+            "minute": now.format("04"),
+        }
+    hour_text = str(now.hour)
+    if now.hour == 0:
+        hour_text = "12"
+    elif now.hour > 12:
+        hour_text = str(now.hour - 12)
+    return {
+        "hour": hour_text,
+        "minute": now.format("04 PM"),
+    }
+
+def assert_clock_test(condition, message):
+    if not condition:
+        fail("Clock regression failed: " + message)
+
+def run_clock_regression_tests():
+    fixture_utc = time.parse_time("2026-07-31T23:07:37Z")
+    toronto = fixture_utc.in_location("America/Toronto")
+    vancouver = fixture_utc.in_location("America/Vancouver")
+
+    assert_clock_test(configured_timezone("America/Toronto", "device", "America/Vancouver") == "America/Toronto", "device timezone source")
+    assert_clock_test(configured_timezone("America/Toronto", "custom", "America/Vancouver") == "America/Vancouver", "custom timezone source")
+
+    twelve_hour = clock_text(toronto, False)
+    twenty_four_hour = clock_text(toronto, True)
+    assert_clock_test(twelve_hour["hour"] == "7" and twelve_hour["minute"] == "07 PM", "12-hour formatting")
+    assert_clock_test(twenty_four_hour["hour"] == "19" and twenty_four_hour["minute"] == "07", "24-hour formatting")
+    assert_clock_test(clock_text(vancouver, True)["hour"] == "16", "custom timezone conversion")
+
+    first_boundary = next_minute_boundary(time.parse_time("2026-07-31T23:07:01Z")).format("2006-01-02T15:04:05Z")
+    last_boundary = next_minute_boundary(time.parse_time("2026-07-31T23:07:59Z")).format("2006-01-02T15:04:05Z")
+    assert_clock_test(first_boundary == "2026-07-31T23:08:00Z", "minute-boundary freshness")
+    assert_clock_test(first_boundary == last_boundary, "same minute scheduled more than one refresh")
+
+    winter = time.parse_time("2026-01-31T23:07:37Z").in_location("America/Toronto")
+    assert_clock_test(clock_text(winter, True)["hour"] == "18", "Toronto DST conversion")
+    print("Clock regression tests passed device=America/Toronto custom=America/Vancouver 12h=7:07 PM 24h=19:07 next=" + first_boundary)
+
 def nightScreen(now, config):
     # Use OG Clock’s settings
     use_24_hour = config.bool("24hour_format", False)
@@ -147,17 +198,9 @@ def nightScreen(now, config):
         blink_text = render.Text(":", font = "6x13", color = time_color)
 
     # Hours / minutes: reuse your existing formatting
-    if use_24_hour:
-        hour_text = now.format("15")
-        minute_text = now.format("04")
-    else:
-        if now.hour == 0:
-            hour_text = "12"
-        elif now.hour > 12:
-            hour_text = str(now.hour - 12)
-        else:
-            hour_text = str(now.hour)
-        minute_text = now.format("04 PM")
+    text = clock_text(now, use_24_hour)
+    hour_text = text["hour"]
+    minute_text = text["minute"]
 
     return render.Root(
         delay = 500,
@@ -184,12 +227,21 @@ def nightScreen(now, config):
 def main(config):
     # Get location info from config or use default
     location_info = json.decode(config.get("location", DEFAULT_LOCATION))
-    timezone = location_info["timezone"]
+    timezone = configured_timezone(
+        location_info["timezone"],
+        config.get("timezone_source", "device"),
+        config.get("custom_timezone", ""),
+    )
     latitude = float(location_info["lat"])
     longitude = float(location_info["lng"])
 
     # Add this right after getting the current time
     now = time.now().in_location(timezone)
+    next_minute = next_minute_boundary(now)
+    print("TRONBYT-NEXT-RENDER: " + next_minute.in_location("UTC").format("2006-01-02T15:04:05Z"))
+    if config.bool("__run_regression_tests", False):
+        run_clock_regression_tests()
+        return render.Root(child = render.Box(width = 64, height = 36, color = "#000000"))
 
     # Night mode check
     nightModeStr = config.get("nightModeStart")
@@ -253,17 +305,9 @@ def main(config):
     display_sample = not (api_key) and api_service != "Open-Meteo" and api_service != "National Weather Service (NWS)"
 
     # Format time components for proper blinking colon display
-    if use_24_hour:
-        hour_text = now.format("15")
-        minute_text = now.format("04")
-    else:
-        if now.hour == 0:
-            hour_text = "12"
-        elif now.hour > 12:
-            hour_text = str(now.hour - 12)
-        else:
-            hour_text = str(now.hour)
-        minute_text = now.format("04 PM")
+    text = clock_text(now, use_24_hour)
+    hour_text = text["hour"]
+    minute_text = text["minute"]
 
     # Initialize weather variables
     icon_ref = None
@@ -496,6 +540,24 @@ def get_schema():
                 desc = "Enable for 24-hour time format.",
                 icon = "clock",
                 default = False,
+            ),
+            schema.Dropdown(
+                id = "timezone_source",
+                name = "Timezone source",
+                desc = "Use the device location timezone or an explicit IANA timezone.",
+                icon = "clock",
+                default = "device",
+                options = [
+                    schema.Option(display = "Device timezone", value = "device"),
+                    schema.Option(display = "Custom timezone", value = "custom"),
+                ],
+            ),
+            schema.Text(
+                id = "custom_timezone",
+                name = "Custom IANA timezone",
+                desc = "Used only when Timezone source is Custom, for example America/Vancouver.",
+                icon = "clock",
+                default = "America/Toronto",
             ),
             schema.Color(
                 id = "time_color",
