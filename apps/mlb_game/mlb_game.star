@@ -1371,7 +1371,7 @@ def get_schema():
             ),
             schema.Toggle(
                 id = "show_team_colored_logo_background",
-                name = "Team-colored logo background",
+                name = "Team-colour background",
                 desc = "Show each team logo and score on the team's color. Turn off for a clean black background.",
                 icon = "baseball",
                 default = True,

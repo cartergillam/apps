@@ -19,6 +19,20 @@ Run the deterministic regression embedded in the app with:
 pixlet render apps/mlb_game/mlb_game.star __run_regression_tests=true --output /tmp/mlb-regression.webp
 ```
 
+Render the deterministic visual fixture in both background modes:
+
+```sh
+pixlet render apps/mlb_game/mlb_game.star __fixture_render=true show_team_colored_logo_background=true --output /tmp/mlb-background-on.webp
+pixlet render apps/mlb_game/mlb_game.star __fixture_render=true show_team_colored_logo_background=false --output /tmp/mlb-background-off.webp
+```
+
+Run `apps/mlb_game/test_render_variants.sh` to render both fixtures and verify
+that the toggle changes the resulting frame.
+
+The toggle is labelled **Team-colour background**. Its canonical stored key
+remains `show_team_colored_logo_background`; the renderer still reads the old
+British-spelling key when the canonical key is absent.
+
 It covers Toronto–St. Louis on July 31, 2026, scheduled/pregame/live/delayed/
 postponed/suspended/final states, an empty pregame linescore, UTC/local
 midnight, the month boundary, home/away, doubleheaders, team code/ID mapping,
