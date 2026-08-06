@@ -5,21 +5,26 @@ repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 output_dir=$(mktemp -d "${TMPDIR:-/tmp}/mlb-game-render.XXXXXX")
 trap 'rm -rf "$output_dir"' EXIT
 
-enabled="$output_dir/background-enabled.webp"
-disabled="$output_dir/background-disabled.webp"
+off="$output_dir/background-off.webp"
+dim="$output_dir/background-dim.webp"
+full="$output_dir/background-full.webp"
 
 pixlet render "$repo_root/apps/mlb_game/mlb_game.star" \
-  __fixture_render=true show_team_colored_logo_background=true \
-  --output "$enabled" --silent
+  __fixture_render=true team_color_background_style=off \
+  --output "$off" --silent
 pixlet render "$repo_root/apps/mlb_game/mlb_game.star" \
-  __fixture_render=true show_team_colored_logo_background=false \
-  --output "$disabled" --silent
+  __fixture_render=true team_color_background_style=dim \
+  --output "$dim" --silent
+pixlet render "$repo_root/apps/mlb_game/mlb_game.star" \
+  __fixture_render=true team_color_background_style=full \
+  --output "$full" --silent
 
-test -s "$enabled"
-test -s "$disabled"
-if cmp -s "$enabled" "$disabled"; then
-  echo "MLB render regression failed: background toggle produced identical frames" >&2
+test -s "$off"
+test -s "$dim"
+test -s "$full"
+if cmp -s "$off" "$dim" || cmp -s "$dim" "$full" || cmp -s "$off" "$full"; then
+  echo "MLB render regression failed: background styles produced identical frames" >&2
   exit 1
 fi
 
-echo "MLB background render variants passed"
+echo "MLB off/dim/full background render variants passed"

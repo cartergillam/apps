@@ -238,6 +238,7 @@ def main(config):
     # Add this right after getting the current time
     now = time.now().in_location(timezone)
     next_minute = next_minute_boundary(now)
+    print("TRONBYT-VISIBLE-MINUTE: " + now.format("2006-01-02T15:04-07:00"))
     print("TRONBYT-NEXT-RENDER: " + next_minute.in_location("UTC").format("2006-01-02T15:04:05Z"))
     if config.bool("__run_regression_tests", False):
         run_clock_regression_tests()

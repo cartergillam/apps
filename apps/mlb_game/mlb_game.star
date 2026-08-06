@@ -461,6 +461,19 @@ def hex_byte(s, start):
         return 0
     return HEX_VAL[hi] * 16 + HEX_VAL[lo]
 
+def dim_team_color(bg):
+    normalized = normalize_hex_color(bg)
+    if normalized == "":
+        return "#101010"
+
+    # Preserve hue at 28% intensity with a small floor for dark team colours.
+    digits = "0123456789abcdef"
+    channels = []
+    for start in [1, 3, 5]:
+        value = max(12, (hex_byte(normalized, start) * 28) // 100)
+        channels.append(digits[value // 16] + digits[value % 16])
+    return "#" + "".join(channels)
+
 def team_font_color(bg):
     if type(bg) != "string" or len(bg) != 7 or bg[0] != "#":
         return "#ffffff"
@@ -952,8 +965,13 @@ def count_tile(inning, top_half, balls, strikes, outs, status_text, game_label):
     )
 
 # ----------------------- Team tiles (left half) -------------------------------
-def team_tile(bg, code3, score, logo_url, show_colored_background):
-    tile_bg = bg if show_colored_background else "#000000"
+def team_tile(bg, code3, score, logo_url, background_style):
+    if background_style == "full":
+        tile_bg = bg
+    elif background_style == "dim":
+        tile_bg = dim_team_color(bg)
+    else:
+        tile_bg = "#000000"
     fg = team_font_color(tile_bg)
     left = render.Box(
         width = 14,
@@ -989,9 +1007,9 @@ def team_tile(bg, code3, score, logo_url, show_colored_background):
     return render.Box(color = tile_bg, height = 16, padding = 1, child = row)
 
 # ----------------------- Panels ----------------------------------------------
-def left_panel(away, home, ascore, hscore, away_bg, home_bg, away_logo_url, home_logo_url, show_colored_background):
-    away_tile = team_tile(away_bg, away, ascore, away_logo_url, show_colored_background)
-    home_tile = team_tile(home_bg, home, hscore, home_logo_url, show_colored_background)
+def left_panel(away, home, ascore, hscore, away_bg, home_bg, away_logo_url, home_logo_url, background_style):
+    away_tile = team_tile(away_bg, away, ascore, away_logo_url, background_style)
+    home_tile = team_tile(home_bg, home, hscore, home_logo_url, background_style)
     return render.Box(
         width = 36,
         child = render.Column(
@@ -1286,11 +1304,14 @@ def main(config):
         print("TRONBYT-HIDDEN-UNTIL: " + next_check.in_location("UTC").format("2006-01-02T15:04:05Z"))
         return []
 
-    show_colored_background = config.bool("show_team_colored_logo_background", True)
-
-    # Compatibility for installations created by an earlier iOS-only spelling.
-    if config.get("show_team_colored_logo_background") == None and config.get("show_team_coloured_logo_background") != None:
-        show_colored_background = config.bool("show_team_coloured_logo_background", True)
+    background_style = as_str(config.get("team_color_background_style"), "")
+    if background_style not in ["off", "dim", "full"]:
+        # Compatibility for both legacy boolean spellings. Existing true/default
+        # installations retain the original full-colour presentation.
+        legacy = config.get("show_team_colored_logo_background")
+        if legacy == None:
+            legacy = config.get("show_team_coloured_logo_background")
+        background_style = "off" if legacy == False else "full"
 
     # Optional manual overrides
     for k in ["away", "home", "away_mark", "home_mark", "inning", "away_bg", "home_bg"]:
@@ -1320,7 +1341,7 @@ def main(config):
                         d["home_bg"],
                         d["away_logo_url"],
                         d["home_logo_url"],
-                        show_colored_background,
+                        background_style,
                     ),
                     right_panel(
                         d["on1"],
@@ -1369,12 +1390,17 @@ def get_schema():
                 icon = "gear",
                 default = False,
             ),
-            schema.Toggle(
-                id = "show_team_colored_logo_background",
+            schema.Dropdown(
+                id = "team_color_background_style",
                 name = "Team-colour background",
-                desc = "Show each team logo and score on the team's color. Turn off for a clean black background.",
+                desc = "Choose a black, muted team-colour, or full team-colour background.",
                 icon = "baseball",
-                default = True,
+                default = "full",
+                options = [
+                    schema.Option(display = "Off", value = "off"),
+                    schema.Option(display = "Dim", value = "dim"),
+                    schema.Option(display = "Full", value = "full"),
+                ],
             ),
         ],
     )
