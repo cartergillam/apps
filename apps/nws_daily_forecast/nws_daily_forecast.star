@@ -23,6 +23,11 @@ NWS_HEADERS = {
     "Accept": "application/geo+json",
 }
 
+def nws_points_failure(status_code):
+    if status_code == 404:
+        return "NWS Daily Forecast requires a U.S. location covered by an NWS forecast office"
+    return "NWS points request failed with status %d" % status_code
+
 DAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 
 def f_to_c(f):
@@ -120,7 +125,7 @@ def fetch_forecasts(location, display_celsius):
         ttl_seconds = 86400,
     )
     if points_resp.status_code != 200:
-        fail("NWS points request failed with status %d" % points_resp.status_code)
+        fail(nws_points_failure(points_resp.status_code))
 
     # Forecast updates roughly hourly; cache that long.
     forecast_url = points_resp.json()["properties"]["forecast"]
@@ -188,6 +193,11 @@ def sample_forecasts(display_celsius):
     ]
 
 def main(config):
+    if config.bool("__run_regression_tests", False):
+        if nws_points_failure(404) != "NWS Daily Forecast requires a U.S. location covered by an NWS forecast office":
+            fail("NWS failure classification regression")
+        return render.Root(child = render.Box(width = 64, height = 32, color = "#000000"))
+
     temp_units = config.get("tempUnits", "F")
     display_celsius = (temp_units == "C")
     location_raw = config.get("location")
