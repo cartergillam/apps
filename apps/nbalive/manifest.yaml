@@ -1,0 +1,16 @@
+---
+id: nba-live
+name: NBA Live
+summary: Live NBA scores
+desc: Displays server-normalized NBA games, scores, status, and device-local tipoff times.
+author: Carter Gillam
+fileName: nba_live.star
+packageName: nbalive
+recommendedInterval: 5
+category: sports
+tags:
+  - real-time
+  - nba
+  - basketball
+published: '2026-09-11T00:00:00Z'
+updated: '2026-09-11T00:00:00Z'
