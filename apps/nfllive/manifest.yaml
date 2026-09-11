@@ -1,0 +1,16 @@
+---
+id: nfl-live
+name: NFL Live
+summary: Live NFL scores
+desc: Displays server-normalized NFL games, scores, status, and device-local kickoff times.
+author: Carter Gillam
+fileName: nfl_live.star
+packageName: nfllive
+recommendedInterval: 5
+category: sports
+tags:
+  - real-time
+  - nfl
+  - football
+published: '2026-09-11T00:00:00Z'
+updated: '2026-09-11T00:00:00Z'
