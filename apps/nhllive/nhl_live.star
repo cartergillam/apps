@@ -1,734 +1,326 @@
-"""
-Applet: NHL Live
-Summary: Live updates of NHL games
-Description: Displays live game stats or next scheduled NHL game information
-Author: Reed Arneson
-"""
+"""NHL Live renders normalized sports data injected by tronbyt-server."""
 
-load("cache.star", "cache")
 load("encoding/json.star", "json")
-load("http.star", "http")
-load("images/nhl_logo.png", NHL_LOGO_ASSET = "file")
-load("math.star", "math")
-load("random.star", "random")
 load("render.star", "render")
 load("schema.star", "schema")
 load("time.star", "time")
 
-NHL_LOGO = NHL_LOGO_ASSET.readall()
+FONT = "CG-pixel-3x5-mono"
 
-APP_VERSION = "2.3.0"
-
-# Constants
-DEFAULT_LOCATION = """
-{
-	"lat": "39.7392",
-	"lng": "104.9903",
-	"description": "Denver, CO, USA",
-	"locality": "Denver",
-	"place_id": "ChIJzxcfI6qAa4cR1jaKJ_j0jhE",
-	"timezone": "America/Denver"
-}
-"""
-
-FONT_STYLE = "CG-pixel-3x5-mono"
-FONT_COLOR_EVEN = "#FFFFFF"
-FONT_COLOR_POWERPLAY = "#59e9ff"
-FONT_COLOR_EMPTYNET = "#eb4c46"
-FONT_COLOR_POWERPLAY_EMPTYNET = "#a838d1"
-
-CACHE_LOGO_SECONDS = 86400
-CACHE_GAME_SECONDS = 60
-CACHE_UPDATE_SECONDS = 30
-CACHE_SHUFFLETEAMS_SECONDS = 3600
-
-BASE_API_URL = "https://api-web.nhle.com"
-BASE_IMAGE_URL = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/nhl/500/{}.png&scale=crop&cquality=40&location=origin&w=80&h=80"
-
-# Some teams have abbr_fix due to inconsistent pattern by logo scrape source
-TEAMS_LIST = {
-    1: {"name": "New Jersey Devils", "abbreviation": "NJD"},
-    2: {"name": "New York Islanders", "abbreviation": "NYI"},
-    3: {"name": "New York Rangers", "abbreviation": "NYR"},
-    4: {"name": "Philadelphia Flyers", "abbreviation": "PHI"},
-    5: {"name": "Pittsburgh Penguins", "abbreviation": "PIT"},
-    6: {"name": "Boston Bruins", "abbreviation": "BOS"},
-    7: {"name": "Buffalo Sabres", "abbreviation": "BUF"},
-    8: {"name": "Montreal Canadiens", "abbreviation": "MTL"},
-    9: {"name": "Ottawa Senators", "abbreviation": "OTT"},
-    10: {"name": "Toronto Maple Leafs", "abbreviation": "TOR"},
-    12: {"name": "Carolina Hurricanes", "abbreviation": "CAR"},
-    13: {"name": "Florida Panthers", "abbreviation": "FLA"},
-    14: {"name": "Tampa Bay Lightning", "abbreviation": "TBL", "abbr_fix": "TB"},
-    15: {"name": "Washington Capitals", "abbreviation": "WSH"},
-    16: {"name": "Chicago Blackhawks", "abbreviation": "CHI"},
-    17: {"name": "Detroit Red Wings", "abbreviation": "DET"},
-    18: {"name": "Nashville Predators", "abbreviation": "NSH"},
-    19: {"name": "St. Louis Blues", "abbreviation": "STL"},
-    20: {"name": "Calgary Flames", "abbreviation": "CGY"},
-    21: {"name": "Colorado Avalanche", "abbreviation": "COL"},
-    22: {"name": "Edmonton Oilers", "abbreviation": "EDM"},
-    23: {"name": "Vancouver Canucks", "abbreviation": "VAN"},
-    24: {"name": "Anaheim Ducks", "abbreviation": "ANA"},
-    25: {"name": "Dallas Stars", "abbreviation": "DAL"},
-    26: {"name": "Los Angeles Kings", "abbreviation": "LAK", "abbr_fix": "LA"},
-    28: {"name": "San Jose Sharks", "abbreviation": "SJS", "abbr_fix": "SJ"},
-    29: {"name": "Columbus Blue Jackets", "abbreviation": "CBJ"},
-    30: {"name": "Minnesota Wild", "abbreviation": "MIN"},
-    52: {"name": "Winnipeg Jets", "abbreviation": "WPG"},
-    # 53: {"name": "Arizona Coyotes", "abbreviation": "ARI"}, LOL
-    54: {"name": "Vegas Golden Knights", "abbreviation": "VGK"},
-    55: {"name": "Seattle Kraken", "abbreviation": "SEA"},
-    68: {"name": "Utah Mammoth", "abbreviation": "UTA", "abbr_fix": "UTAH"},
-}
-
-# Main App
 def main(config):
-    # Get timezone and set today date
-    currDate = get_current_date(config)
+    scenario = config.get("_fixture_scenario", "")
+    snapshot = fixture_snapshot(scenario)
+    if snapshot == None:
+        raw = config.get("$provider_data", "")
+        if raw == "":
+            return render.Root(child = neutral_page(provider_error(config)))
+        snapshot = json.decode(raw)
 
-    # Grab teamid, teamAbbr from our schema
-    teamId, team_abbr = get_team(config)
+    mode = config.get("mode", "favorite")
+    team_id = str(config.get("teamid", "10"))
 
-    print("###################################################")
-    print("## NHL Live Applet - teamId: %s" % teamId)
-    print("## NHL Live Applet - teamAbbr: %s" % team_abbr)
-    print("## NHL Live Applet - currDate: %s" % currDate)
-    print("###################################################")
+    # Compatibility: historical teamid=0 selected a random league team.
+    # The deterministic successor is the All Live Games mode.
+    if team_id == "0":
+        mode = "all_live"
 
-    # check if this team knows of a cached game:
-    game_info = cache.get("teamid_" + str(teamId) + "_game") or None
+    games = snapshot.get("games", [])
+    stale = snapshot.get("stale", False)
+    if mode == "all_live":
+        pages = [game_page(game, config, stale) for game in games if is_live(game)]
+        if len(pages) == 0:
+            pages = [no_live_page("NO LIVE GAMES", snapshot.get("nextGame"), "", config, stale)]
+        return animation(pages, config)
 
-    # No cached game, normal flow
-    if game_info == None:
-        print("  - CACHE: No Game found for teamid %s" % str(teamId))
+    if len(games) == 0:
+        if config.bool("gameday", False):
+            return []
+        return render.Root(child = no_live_page("NO LIVE GAME", snapshot.get("nextGame"), team_id, config, stale))
+    return animation([game_page(game, config, stale) for game in games], config)
 
-        # Create our game_info dict
-        game_info = {
-            "gameId": None,
-            "is_game_today": False,
-            "teamId_away": None,
-            "teamId_home": None,
-            "goals_away": "",
-            "goals_home": "",
-            "game_time": "",
-            "game_period": "",
-            "is_pp_away": False,
-            "is_pp_home": False,
-            "is_empty_away": False,
-            "is_empty_home": False,
-            "game_update": "",
-            "game_state": "",
-            "start_time": "",
-            "is_intermission": "",
-        }
-
-        # Get game info (current game, opponent, basic stats, or next game scheduled)
-        game_info = get_games(teamId, currDate, game_info)
-
-        print("  - CACHE: Setting Game for teamid %s" % str(teamId))
-        cache.set("teamid_" + str(teamId) + "_game", json.encode(game_info), ttl_seconds = CACHE_GAME_SECONDS)
-
-    else:
-        print("  - CACHE: Game found for teamid %s" % str(teamId))
-        game_info = json.decode(game_info)
-        if game_info["game_state"] in ["LIVE", "CRIT"]:
-            game_info = get_game_boxscore(game_info)
-
-    # Optionally pull live game stat updates
-    if game_info["game_state"] in ["LIVE", "CRIT"] and config.bool("liveupdates", True):
-        game_info["game_update"] = get_live_game_update(game_info, config)
-    elif game_info["game_state"] in ["LIVE", "CRIT"] and not config.bool("liveupdates", True):
-        game_info["game_update"] = ""
-        # If game is FUT/PRE scheduled, override game_update with local start_time
-
-    elif game_info["game_state"] in ["FUT", "PRE"]:
-        print("  - INFO: Overriding game_update with start_time")
-        game_info["game_update"] = get_local_start_time(game_info["start_time"], config)
-
-    # If we have no gameId, return NHL logo
-    if game_info["gameId"] == None:
-        print("  - ERROR: No Games Found. Displaying NHL Logo.")
-        return render.Root(
-            child = render.Box(
-                child = render.Column(
-                    expanded = True,
-                    main_align = "space_around",
-                    cross_align = "center",
-                    children = [
-                        render.Image(
-                            src = NHL_LOGO,
-                            width = 20,
-                            height = 20,
-                        ),
-                        render.Text(
-                            content = "No %s Games" % team_abbr,
-                            font = FONT_STYLE,
-                            color = "#ababab",
-                        ),
-                    ],
-                ),
-            ),
-        )
-
-    # Grab the logos
-    logo_away = str(get_team_logo(game_info["teamId_away"]))
-    logo_home = str(get_team_logo(game_info["teamId_home"]))
-
-    # # PowerPlay/EmptyNet Color Change
-    score_color_away = get_score_color(game_info["is_pp_away"], game_info["is_empty_away"])
-    score_color_home = get_score_color(game_info["is_pp_home"], game_info["is_empty_home"])
-
-    # Game Day Only
-    if config.bool("gameday", False) and (game_info["is_game_today"] == False):
-        print("  - No %s games today, returning nothing." % str(team_abbr))
-        return []
-
-    # print("-->", game_info)
-
-    # Main Display Render
+def animation(pages, config):
+    if len(pages) == 1:
+        return render.Root(child = pages[0])
     return render.Root(
-        child = render.Column(
-            children = [
-                render.Row(
-                    expanded = True,
-                    main_align = "space_around",
-                    cross_align = "center",
-                    children = [
-                        render.Column(
-                            cross_align = "center",
-                            children = [
-                                render.Image(width = 18, height = 18, src = logo_away),
-                                render.Box(height = 1, width = 5, color = "#000000"),
-                                render.Text(
-                                    content = TEAMS_LIST[game_info["teamId_away"]]["abbreviation"] + " " + game_info["goals_away"],
-                                    font = FONT_STYLE,
-                                    color = score_color_away,
-                                ),
-                            ],
-                        ),
-                        render.Column(
-                            cross_align = "center",
-                            main_align = "space evenly",
-                            children = [
-                                render.Box(height = 2, width = 5, color = "#000000"),
-                                render.Text(
-                                    content = game_info["game_time"],
-                                    font = FONT_STYLE,
-                                    color = "#ffbe0a",
-                                ),
-                                render.Text(
-                                    content = "vs",
-                                    font = FONT_STYLE,
-                                    color = "#525252",
-                                ),
-                                render.Text(
-                                    content = game_info["game_period"],
-                                    font = FONT_STYLE,
-                                    color = "#ffbe0a",
-                                ),
-                                render.Box(height = 1, width = 5, color = "#000000"),
-                                render.Text(
-                                    content = game_info["is_intermission"],
-                                    font = FONT_STYLE,
-                                    color = "#ffbe0a",
-                                ),
-                            ],
-                        ),
-                        render.Column(
-                            cross_align = "center",
-                            children = [
-                                render.Image(width = 18, height = 18, src = logo_home),
-                                render.Box(height = 1, width = 5, color = "#000000"),
-                                render.Text(
-                                    content = game_info["goals_home"] + " " + TEAMS_LIST[game_info["teamId_home"]]["abbreviation"],
-                                    font = FONT_STYLE,
-                                    color = score_color_home,
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-                render.Box(
-                    height = 9,
-                    child = render.Row(
-                        expanded = True,
-                        main_align = "end",
-                        children = [
-                            render.Marquee(
-                                offset_start = 16,
-                                offset_end = 16,
-                                width = 64,
-                                child = render.Text(
-                                    content = game_info["game_update"],
-                                    font = FONT_STYLE,
-                                    color = "#ffbe0a",
-                                ),
-                            ),
-                        ],
-                    ),
-                ),
-            ],
-        ),
+        delay = int(config.get("rotation_speed", "5")) * 1000,
+        show_full_animation = True,
+        child = render.Animation(children = pages),
     )
 
-# Check if there is a game, if it's live or over or scheduled.
-# If live or over, grab game info. If scheduled, grab next game info.
-def get_games(teamId, currDate, game_info):
-    print("  - Get Games for week")
-
-    # Get team schedule for a team week
-    games = get_club_schedule_week(teamId)
-
-    # init some vars
-    start_time = None
-    teamId_away = None
-    teamId_home = None
-    gameId = None
-    game_state = None
-
-    if len(games["games"]) > 0:
-        print("  - Games found for week")
-        game_info["gameId"] = str(int(games["games"][0]["id"]))
-        game_info["game_date"] = str(games["games"][0]["gameDate"])
-        game_info["teamId_away"] = int(games["games"][0]["awayTeam"]["id"])
-        game_info["teamId_home"] = int(games["games"][0]["homeTeam"]["id"])
-
-        game_info = get_game_status(game_info, games, currDate)
-
-        # If no games this week, get schedule for the season
-    else:
-        print("  - No games this week, getting season schedule")
-        games = get_club_schedule_season(teamId)
-
-        # If games set game_live, game_over, teamId_away, teamId_home, start_time
-        if games:
-            teamId_away, teamId_home, start_time, gameId, game_state = get_next_game(currDate, games)
-
-        game_info["teamId_away"] = teamId_away
-        game_info["teamId_home"] = teamId_home
-        game_info["game_state"] = game_state
-        game_info["gameId"] = gameId
-        game_info["start_time"] = start_time
-
-    return game_info
-
-def get_game_status(game_info, games, currDate):
-    # Check if game is today
-    if game_info["game_date"] == str(currDate):
-        game_info["is_game_today"] = True
-
-    # If games this week, check if game[0] is live or over
-    if is_game_live(games):
-        print("  - Game is live")
-        game_info = get_game_boxscore(game_info)
-        game_info["game_state"] = "LIVE"
-
-    elif is_game_over(games):
-        print("  - Game is over")
-        game_info = get_final_game_info(games, game_info)
-        game_info["game_state"] = "OVER"
-
-    else:
-        # Grab the start time
-        game_info["game_state"] = "FUT"
-        game_info["start_time"] = games["games"][0]["startTimeUTC"]
-
-    return game_info
-
-def get_live_game_update(game_info, config):
-    game_stats = cache.get("game_" + str(game_info["gameId"]) + "_liveupdate") or None
-    opts = []
-
-    if game_stats == None:
-        print("  - CACHE: No LiveUpdate found for gameid %s" % str(game_info["gameId"]))
-        url = BASE_API_URL + "/v1/gamecenter/" + game_info["gameId"] + "/right-rail"
-        print("  - HTTP.GET: %s" % url)
-
-        response = http.get(url)
-
-        if response.status_code == 200:
-            game_stats = {}
-            game = response.json()
-
-            # Reformat our game stats a bit
-            for stat in game["teamGameStats"]:
-                if stat["category"] == "faceoffWinningPctg":
-                    stat["category"] = "fo"
-                    stat["awayValue"] = str(int(math.round(stat["awayValue"] * 100))) + "%"
-                    stat["homeValue"] = str(int(math.round(stat["homeValue"] * 100))) + "%"
-                elif stat["category"] == "blockedShots":
-                    stat["category"] = "blk"
-                    stat["awayValue"] = str(int(stat["awayValue"]))
-                    stat["homeValue"] = str(int(stat["homeValue"]))
-                elif stat["category"] == "takeaways":
-                    stat["category"] = "take"
-                    stat["awayValue"] = str(int(stat["awayValue"]))
-                    stat["homeValue"] = str(int(stat["homeValue"]))
-                elif stat["category"] == "giveaways":
-                    stat["category"] = "give"
-                    stat["awayValue"] = str(int(stat["awayValue"]))
-                    stat["homeValue"] = str(int(stat["homeValue"]))
-                elif stat["category"] == "hits":
-                    stat["category"] = "hit"
-                    stat["awayValue"] = str(int(stat["awayValue"]))
-                    stat["homeValue"] = str(int(stat["homeValue"]))
-                elif stat["category"] == "powerPlay":
-                    stat["category"] = "ppg"
-                elif stat["category"] == "sog":
-                    stat["awayValue"] = str(int(stat["awayValue"]))
-                    stat["homeValue"] = str(int(stat["homeValue"]))
-                elif stat["category"] == "pim":
-                    stat["awayValue"] = str(int(stat["awayValue"]))
-                    stat["homeValue"] = str(int(stat["homeValue"]))
-
-                stat_type = stat["category"]
-                game_stats[stat_type] = [stat["awayValue"], stat["homeValue"]]
-
-            cache.set("game_" + str(game_info["gameId"]) + "_liveupdate", json.encode(game_stats), ttl_seconds = CACHE_UPDATE_SECONDS)
-            print("  - CACHE: Setting LiveUpdate for gameid %s" % str(game_info["gameId"]))
-
-    else:
-        print("  - CACHE: LiveUpdate found for gameid %s" % str(game_info["gameId"]))
-        game_stats = json.decode(game_stats)
-
-    team_away = TEAMS_LIST[game_info["teamId_away"]]["abbreviation"]
-    team_home = TEAMS_LIST[game_info["teamId_home"]]["abbreviation"]
-
-    # Create our opts set for use in random update based on schema config selections
-    if config.bool("sog", True):
-        opts.append("sog")
-    if config.bool("ppg", True):
-        opts.append("ppg")
-    if config.bool("fo", True):
-        opts.append("fo")
-    if config.bool("pim", True):
-        opts.append("pim")
-    if config.bool("hit", True):
-        opts.append("hit")
-    if config.bool("blk", True):
-        opts.append("blk")
-    if config.bool("take", True):
-        opts.append("take")
-    if config.bool("give", True):
-        opts.append("give")
-
-    print("  - OPTS: %s" % opts)
-
-    # Randomly choose what update to show
-    if len(opts) > 0:
-        opt = opts[random.number(0, len(opts) - 1)]
-
-        # print("  - OPT: %s" % opt)
-        update = opt.upper() + " - " + team_away + ":" + str(game_stats[opt][0]) + " " + team_home + ":" + str(game_stats[opt][1])
-    else:
-        update = ""
-
-    return update
-
-# Grab basic game info via boxscore
-def get_game_boxscore(game_info):
-    update = cache.get("game_" + str(game_info["gameId"]) + "_boxscore") or None
-
-    if update == None:
-        print("  - CACHE: No Boxscore found for gameid %s" % str(game_info["gameId"]))
-        url = BASE_API_URL + "/v1/gamecenter/" + game_info["gameId"] + "/boxscore"
-        print("  - HTTP.GET: %s" % url)
-        response = http.get(url)
-
-        if response.status_code == 200:
-            game = response.json()
-            game_info["goals_away"] = str(int(game["awayTeam"]["score"]))
-            game_info["goals_home"] = str(int(game["homeTeam"]["score"]))
-
-            game_info["game_time"] = game["clock"]["timeRemaining"]
-            game_info["game_period"] = get_game_period(game["periodDescriptor"]["number"], game["periodDescriptor"]["periodType"])
-
-            if game["gameState"] in ["LIVE", "CRIT"]:
-                game_info["game_state"] = "LIVE"
-            elif game["gameState"] in ["OVER", "FINAL", "OFF"]:
-                game_info["game_state"] = "OVER"
-
-            # Check if intermission
-            if game["clock"]["inIntermission"]:
-                game_info["is_intermission"] = "INT"
-            else:
-                game_info["is_intermission"] = ""
-
-            # Grab Empty Net and Power Play
-            if "situation" in game:
-                situationCode = game["situation"]["situationCode"]
-
-                goalie_away = int(situationCode[0])
-                skater_away = int(situationCode[1])
-                skater_home = int(situationCode[2])
-                goalie_home = int(situationCode[3])
-
-                if goalie_away == 0:
-                    game_info["is_empty_away"] = True
-                    skater_away = skater_away - 1
-                if skater_away > skater_home:
-                    game_info["is_pp_away"] = True
-                if goalie_home == 0:
-                    game_info["is_empty_home"] = True
-                    skater_home = skater_home - 1
-                if skater_home > skater_away:
-                    game_info["is_pp_home"] = True
-            else:
-                game_info["is_empty_away"] = False
-                game_info["is_empty_home"] = False
-                game_info["is_pp_away"] = False
-                game_info["is_pp_home"] = False
-
-            print("  - CACHE: Setting Boxscore for gameid %s" % str(game_info["gameId"]))
-            cache.set("game_" + str(game_info["gameId"]) + "_boxscore", json.encode(game_info), ttl_seconds = CACHE_UPDATE_SECONDS)
-    else:
-        print("  - CACHE: Boxscore found for gameid %s" % str(game_info["gameId"]))
-        game_info = json.decode(update)
-
-    return game_info
-
-# If the game is over, grab the final game info (scores, period) and format for the display
-def get_final_game_info(games, game_info):
-    game_info["goals_away"] = str(int(games["games"][0]["awayTeam"]["score"]))
-    game_info["goals_home"] = str(int(games["games"][0]["homeTeam"]["score"]))
-    if games["games"][0]["gameOutcome"]["lastPeriodType"] == "SO":
-        game_info["game_update"] = "    FINAL/SO"
-    elif games["games"][0]["gameOutcome"]["lastPeriodType"] == "OT":
-        game_info["game_update"] = "    FINAL/OT"
-    else:
-        game_info["game_update"] = "      FINAL"
-    return game_info
-
-# Build the period display info
-def get_game_period(period, periodType):
-    if periodType == "SO":
-        return "SO"
-    if period == 1:
-        return "1st"
-    elif period == 2:
-        return "2nd"
-    elif period == 3:
-        return "3rd"
-    elif period > 4:
-        return str(int(period)) + "th"
-    else:
-        return "OT"
-
-def get_local_start_time(start_time, config):
-    local_start_time = time.parse_time(start_time)
-    local_start_time = local_start_time.in_location(get_timezone(config))
-    local_start_time = local_start_time.format("Mon, Jan 2 @ 3:04PM")
-    return str(local_start_time)
-
-# Get club schedule for a team week
-def get_club_schedule_week(teamId):
-    url = BASE_API_URL + "/v1/club-schedule/" + TEAMS_LIST[teamId]["abbreviation"] + "/week/now"
-    print("  - HTTP.GET: %s" % url)
-    response = http.get(url)
-
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return None
-
-def get_club_schedule_season(teamId):
-    url = BASE_API_URL + "/v1/club-schedule-season/" + TEAMS_LIST[teamId]["abbreviation"] + "/now"
-    print("  - HTTP.GET: %s" % url)
-    response = http.get(url)
-
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return None
-
-def is_game_live(games):
-    return games["games"][0]["gameState"] in ["LIVE", "CRIT"]
-
-def is_game_over(games):
-    return games["games"][0]["gameState"] in ["OVER", "FINAL", "OFF"]
-
-def get_next_game(currDate, games):
-    for game in games["games"]:
-        if game["gameDate"] >= currDate and game["gameState"] in ["FUT", "PRE"]:
-            return int(game["awayTeam"]["id"]), int(game["homeTeam"]["id"]), game["startTimeUTC"], game["id"], game["gameState"]
-    return None, None, None, None, None
-
-def get_current_date(config):
-    timezone = get_timezone(config)
-    now = time.now().in_location(timezone)
-    today = now.format("2006-01-02").upper()
-    return today
-
-def get_team(config):
-    teamId = int(config.get("teamid") or 0)
-    if teamId == 0:
-        teamId = get_random_team()
-
-    # Grab team name
-    if teamId in TEAMS_LIST.keys():
-        team_abbr = TEAMS_LIST[teamId]["abbreviation"]
-    else:
-        team_abbr = "NHL"
-    return teamId, team_abbr
-
-def get_team_logo(teamId):
-    # janky abbrevations fix
-    if "abbr_fix" in TEAMS_LIST[teamId]:
-        abbr = TEAMS_LIST[teamId]["abbr_fix"]
-    else:
-        abbr = TEAMS_LIST[teamId]["abbreviation"]
-
-    url = BASE_IMAGE_URL.format(abbr)
-    print("  - HTTP.GET: %s" % url)
-    response = http.get(url, ttl_seconds = CACHE_LOGO_SECONDS)
-
-    if response.status_code != 200:
-        logo = NHL_LOGO
-    else:
-        logo = response.body()
-
-    return logo
-
-# Check what color to use for team abbreviation based on pp or empty net
-def get_score_color(power_play, empty_net):
-    # TODO: make this better
-    if power_play == "True" or power_play == True:
-        power_play = True
-    else:
-        power_play = False
-
-    if empty_net == "True" or empty_net == True:
-        empty_net = True
-    else:
-        empty_net = False
-
-    if power_play and empty_net:
-        return FONT_COLOR_POWERPLAY_EMPTYNET
-    elif empty_net:
-        return FONT_COLOR_EMPTYNET
-    elif power_play:
-        return FONT_COLOR_POWERPLAY
-    else:
-        return FONT_COLOR_EVEN
-
-def get_random_team():
-    # TODO: re-implement random team that only has a scheduled game
-    rand = random.number(0, len(TEAMS_LIST.keys()) - 1)
-    return int(TEAMS_LIST.keys()[rand])
-
-def get_timezone(config):
-    return json.decode(config.get("location") or DEFAULT_LOCATION)["timezone"]
-
-# Schema
-def get_schema():
-    team_schema_list = [
-        schema.Option(display = t[1]["name"], value = str(t[0]))
-        for t in sorted(TEAMS_LIST.items(), key = lambda item: item[1]["name"])
-    ]
-    team_schema_list.insert(0, schema.Option(display = "Shuffle All Teams", value = "0"))
-
-    version = [
-        schema.Option(
-            display = APP_VERSION,
-            value = APP_VERSION,
-        ),
-    ]
-
-    return schema.Schema(
-        version = "1",
-        fields = [
-            schema.Dropdown(
-                id = "teamid",
-                name = "Team",
-                desc = "The team you wish to follow.",
-                icon = "user",
-                options = team_schema_list,
-                default = "0",
+def game_page(game, config, snapshot_stale):
+    away = game.get("awayTeam", {})
+    home = game.get("homeTeam", {})
+    status = game.get("status", "unknown")
+    score_visible = status in ["live", "intermission", "final"]
+    stale = snapshot_stale or game.get("stale", False)
+    return render.Column(
+        expanded = True,
+        main_align = "space_between",
+        children = [
+            render.Row(
+                expanded = True,
+                main_align = "space_between",
+                children = [
+                    render.Text(content = "NHL", color = "#8e8e93", font = FONT),
+                    render.Text(content = "STALE" if stale else status_badge(status), color = "#ffcc00" if stale else status_color(status), font = FONT),
+                ],
             ),
-            schema.Location(
-                id = "location",
-                name = "Location",
-                desc = "Location for which to display time.",
-                icon = "locationDot",
+            render.Row(
+                expanded = True,
+                main_align = "space_between",
+                children = [
+                    team_panel(away, game.get("awayScore", 0) if score_visible else "", config),
+                    render.Text(content = "@", color = "#666666", font = FONT),
+                    team_panel(home, game.get("homeScore", 0) if score_visible else "", config),
+                ],
             ),
-            schema.Toggle(
-                id = "gameday",
-                name = "Game Day Only",
-                desc = "",
-                icon = "calendar",
-                default = False,
-            ),
-            schema.Toggle(
-                id = "liveupdates",
-                name = "Live Updates",
-                desc = "Pull Live Game Updates",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "sog",
-                name = "SOG",
-                desc = "Toggle Shots on Goal Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "pim",
-                name = "PIM",
-                desc = "Toggle Penalty Minutes Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "ppg",
-                name = "PPG",
-                desc = "Toggle Power Play Goal Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "fo",
-                name = "Face Offs",
-                desc = "Toggle Face Off Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "hit",
-                name = "Hit",
-                desc = "Toggle Hits Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "blk",
-                name = "Blocks",
-                desc = "Toggle Block Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "take",
-                name = "Takeaways",
-                desc = "Toggle Takeaway Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Toggle(
-                id = "give",
-                name = "Giveaways",
-                desc = "Toggle Giveaway Stats",
-                icon = "hockeyPuck",
-                default = True,
-            ),
-            schema.Dropdown(
-                id = "version",
-                name = "Version",
-                desc = "NHL Live App Version",
-                icon = "codeCompare",
-                options = version,
-                default = version[0].value,
+            render.Box(
+                width = 64,
+                height = 7,
+                child = render.Row(
+                    expanded = True,
+                    main_align = "center",
+                    cross_align = "center",
+                    children = [render.Text(content = display_status(game, config)[:20], color = status_color(status), font = FONT)],
+                ),
             ),
         ],
     )
+
+def team_panel(team, score, config):
+    style = config.get("team_color_background_style", "dim")
+    primary = safe_color(team.get("primaryColor", "#222222"))
+    background = "#000000"
+    if style == "full":
+        background = primary
+    elif style == "dim":
+        background = dim_color(primary)
+    label = team.get("abbreviation", "?")[:3]
+    content = label if score == "" else label + " " + str(score)
+    return render.Box(
+        width = 27,
+        height = 16,
+        color = background,
+        child = render.Row(
+            expanded = True,
+            main_align = "center",
+            cross_align = "center",
+            children = [render.Text(content = content, color = "#ffffff", font = "tb-8")],
+        ),
+    )
+
+def no_live_page(label, next_game, favorite_id, config, stale):
+    secondary = "CHECK BACK SOON"
+    if next_game != None:
+        opponent = next_opponent(next_game, favorite_id)
+        start = local_start(next_game.get("scheduledAt", ""), config)
+        secondary = ((opponent + " ") if opponent != "" else "") + start
+    return render.Column(
+        expanded = True,
+        main_align = "space_around",
+        cross_align = "center",
+        children = [
+            render.Text(content = "NHL", color = "#ffffff", font = "tb-8"),
+            render.Text(content = label, color = "#8e8e93", font = FONT),
+            render.Text(content = ("STALE " if stale else "") + secondary[:18], color = "#ffcc00" if stale else "#ffffff", font = FONT),
+        ],
+    )
+
+def neutral_page(message):
+    return render.Column(
+        expanded = True,
+        main_align = "space_around",
+        cross_align = "center",
+        children = [
+            render.Text(content = "NHL", color = "#ffffff", font = "tb-8"),
+            render.Text(content = message[:18], color = "#ff9f0a", font = FONT),
+        ],
+    )
+
+def display_status(game, config):
+    status = game.get("status", "unknown")
+    if status in ["scheduled", "pregame"]:
+        return ("PREGAME " if status == "pregame" else "") + local_start(game.get("scheduledAt", ""), config)
+    detail = game.get("statusDetail", "")
+    if detail != "":
+        return detail
+    return {
+        "intermission": "INTERMISSION",
+        "delayed": "DELAYED",
+        "suspended": "SUSPENDED",
+        "postponed": "POSTPONED",
+        "cancelled": "CANCELLED",
+        "final": "FINAL",
+    }.get(status, "STATUS UNKNOWN")
+
+def local_start(value, config):
+    if value == "":
+        return "TIME TBD"
+    return time.parse_time(value).in_location(config.get("$tz", "UTC")).format("Jan 2 3:04PM")
+
+def next_opponent(game, favorite_id):
+    away = game.get("awayTeam", {})
+    home = game.get("homeTeam", {})
+    if str(away.get("providerId", "")) == favorite_id:
+        return "@" + home.get("abbreviation", "?")[:3]
+    if str(home.get("providerId", "")) == favorite_id:
+        return "vs " + away.get("abbreviation", "?")[:3]
+    return away.get("abbreviation", "?")[:3] + "@" + home.get("abbreviation", "?")[:3]
+
+def is_live(game):
+    return game.get("status", "") in ["live", "intermission"]
+
+def status_badge(status):
+    return {
+        "scheduled": "NEXT",
+        "pregame": "PRE",
+        "live": "LIVE",
+        "intermission": "INT",
+        "delayed": "DELAY",
+        "suspended": "SUSP",
+        "postponed": "PPD",
+        "cancelled": "CANCEL",
+        "final": "FINAL",
+    }.get(status, "NHL")
+
+def status_color(status):
+    if status in ["live", "intermission"]:
+        return "#30d158"
+    if status in ["delayed", "suspended", "postponed", "cancelled"]:
+        return "#ff9f0a"
+    if status == "final":
+        return "#8e8e93"
+    return "#ffffff"
+
+def safe_color(value):
+    if len(value) == 7 and value[0] == "#":
+        return value
+    return "#222222"
+
+def dim_color(value):
+    # Pixlet accepts #RRGGBBAA. Preserve team identity at low intensity so
+    # white score text remains readable on a physical matrix.
+    return value + "55"
+
+def provider_error(config):
+    raw = config.get("$provider_error", "")
+    if raw == "":
+        return "DATA UNAVAILABLE"
+    code = json.decode(raw).get("code", "")
+    if code == "sports_team_invalid":
+        return "CHOOSE TEAM"
+    return "DATA UNAVAILABLE"
+
+def fixture_team(team_id, abbreviation, color):
+    return {"providerId": str(team_id), "abbreviation": abbreviation, "primaryColor": color}
+
+def fixture_game(game_id, status, period, clock, away_score = 1, home_score = 2, scheduled = "2026-01-10T00:30:00Z", stale = False):
+    detail = ""
+    if status == "live":
+        detail = period + (" " + clock if clock != "" else "")
+    elif status == "intermission":
+        detail = "INT " + period
+    elif status == "final":
+        detail = "FINAL" + ("/" + period if period in ["OT", "SO"] else "")
+    return {
+        "id": "nhl:" + str(game_id),
+        "awayTeam": fixture_team(10, "TOR", "#003E7E"),
+        "homeTeam": fixture_team(6, "BOS", "#FFB81C"),
+        "awayScore": away_score,
+        "homeScore": home_score,
+        "scheduledAt": scheduled,
+        "status": status,
+        "periodLabel": period,
+        "clock": clock,
+        "statusDetail": detail,
+        "stale": stale,
+    }
+
+def fixture_snapshot(scenario):
+    statuses = {
+        "scheduled": [fixture_game(1, "scheduled", "", "")],
+        "pregame": [fixture_game(2, "pregame", "", "")],
+        "live_p1": [fixture_game(3, "live", "P1", "12:34")],
+        "live_p2": [fixture_game(4, "live", "P2", "09:10", 2, 2)],
+        "live_p3": [fixture_game(5, "live", "P3", "01:00", 3, 2)],
+        "intermission": [fixture_game(6, "intermission", "P2", "00:00", 1, 1)],
+        "overtime": [fixture_game(7, "live", "OT", "03:21", 2, 2)],
+        "shootout": [fixture_game(8, "live", "SO", "", 3, 3)],
+        "final": [fixture_game(9, "final", "", "", 1, 4)],
+        "final_ot": [fixture_game(10, "final", "OT", "", 4, 3)],
+        "final_so": [fixture_game(11, "final", "SO", "", 2, 3)],
+        "delayed": [fixture_game(12, "delayed", "", "")],
+        "postponed": [fixture_game(13, "postponed", "", "")],
+        "suspended": [fixture_game(14, "suspended", "", "")],
+        "cancelled": [fixture_game(15, "cancelled", "", "")],
+        "stale": [fixture_game(16, "live", "P2", "08:00", 2, 1, stale = True)],
+        "timezone_boundary": [fixture_game(17, "scheduled", "", "", scheduled = "2026-01-10T02:30:00Z")],
+    }
+    if scenario in statuses:
+        return {"games": statuses[scenario], "stale": scenario == "stale"}
+    if scenario == "multiple":
+        return {"games": [fixture_game(20, "live", "P1", "11:00"), fixture_game(21, "intermission", "P2", "00:00", 3, 3)]}
+    if scenario in ["no_live", "future"]:
+        return {"games": [], "nextGame": fixture_game(30, "scheduled", "", "", scheduled = "2026-01-11T00:30:00Z")}
+    if scenario == "no_games":
+        return {"games": []}
+    return None
+
+def get_schema():
+    return schema.Schema(
+        version = "1",
+        fields = [
+            schema.Dropdown(id = "mode", name = "Mode", desc = "Follow one team or rotate through every live NHL game.", icon = "gear", default = "favorite", options = [
+                schema.Option(display = "Favorite Team", value = "favorite"),
+                schema.Option(display = "All Live Games", value = "all_live"),
+            ]),
+            schema.Dropdown(id = "teamid", name = "Favorite NHL team", desc = "Stable NHL team identity. Used in Favorite Team mode.", icon = "star", default = "10", options = team_options()),
+            schema.Dropdown(id = "team_color_background_style", name = "Team-colour background", desc = "Control the color behind team abbreviations.", icon = "palette", default = "dim", options = [
+                schema.Option(display = "Off", value = "off"),
+                schema.Option(display = "Dim", value = "dim"),
+                schema.Option(display = "Full", value = "full"),
+            ]),
+            schema.Dropdown(id = "rotation_speed", name = "Game duration", desc = "Seconds per game when more than one game is shown.", icon = "gear", default = "5", options = [
+                schema.Option(display = "3 seconds", value = "3"),
+                schema.Option(display = "5 seconds", value = "5"),
+                schema.Option(display = "8 seconds", value = "8"),
+            ]),
+            schema.Toggle(id = "gameday", name = "Game day only", desc = "Hide Favorite Team mode on days without a selected-team game.", icon = "calendar", default = False),
+        ],
+    )
+
+def team_options():
+    return [
+        schema.Option(display = "Anaheim Ducks", value = "24"),
+        schema.Option(display = "Boston Bruins", value = "6"),
+        schema.Option(display = "Buffalo Sabres", value = "7"),
+        schema.Option(display = "Calgary Flames", value = "20"),
+        schema.Option(display = "Carolina Hurricanes", value = "12"),
+        schema.Option(display = "Chicago Blackhawks", value = "16"),
+        schema.Option(display = "Colorado Avalanche", value = "21"),
+        schema.Option(display = "Columbus Blue Jackets", value = "29"),
+        schema.Option(display = "Dallas Stars", value = "25"),
+        schema.Option(display = "Detroit Red Wings", value = "17"),
+        schema.Option(display = "Edmonton Oilers", value = "22"),
+        schema.Option(display = "Florida Panthers", value = "13"),
+        schema.Option(display = "Los Angeles Kings", value = "26"),
+        schema.Option(display = "Minnesota Wild", value = "30"),
+        schema.Option(display = "Montréal Canadiens", value = "8"),
+        schema.Option(display = "Nashville Predators", value = "18"),
+        schema.Option(display = "New Jersey Devils", value = "1"),
+        schema.Option(display = "New York Islanders", value = "2"),
+        schema.Option(display = "New York Rangers", value = "3"),
+        schema.Option(display = "Ottawa Senators", value = "9"),
+        schema.Option(display = "Philadelphia Flyers", value = "4"),
+        schema.Option(display = "Pittsburgh Penguins", value = "5"),
+        schema.Option(display = "San Jose Sharks", value = "28"),
+        schema.Option(display = "Seattle Kraken", value = "55"),
+        schema.Option(display = "St. Louis Blues", value = "19"),
+        schema.Option(display = "Tampa Bay Lightning", value = "14"),
+        schema.Option(display = "Toronto Maple Leafs", value = "10"),
+        schema.Option(display = "Utah Mammoth", value = "68"),
+        schema.Option(display = "Vancouver Canucks", value = "23"),
+        schema.Option(display = "Vegas Golden Knights", value = "54"),
+        schema.Option(display = "Washington Capitals", value = "15"),
+        schema.Option(display = "Winnipeg Jets", value = "52"),
+    ]
