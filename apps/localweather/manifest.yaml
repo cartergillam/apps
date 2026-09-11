@@ -1,0 +1,16 @@
+---
+id: local-weather
+name: Local Weather
+summary: Local weather forecasts
+desc: Displays server-managed OpenWeather data using the device location by default.
+author: Tronbyt
+fileName: local_weather.star
+packageName: localweather
+recommendedInterval: 10
+category: weather
+tags:
+  - weather
+  - forecast
+  - alerts
+published: '2026-08-06T00:00:00Z'
+updated: '2026-08-06T00:00:00Z'

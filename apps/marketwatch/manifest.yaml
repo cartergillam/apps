@@ -1,0 +1,16 @@
+---
+id: market-watch
+name: Market Watch
+summary: Readable market quotes
+desc: Displays server-managed Twelve Data quotes without exposing provider credentials.
+author: Tronbyt
+fileName: market_watch.star
+packageName: marketwatch
+recommendedInterval: 5
+category: finance
+tags:
+  - stocks
+  - markets
+  - finance
+published: '2026-08-06T00:00:00Z'
+updated: '2026-08-06T00:00:00Z'

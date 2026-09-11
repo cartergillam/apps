@@ -11,6 +11,15 @@ load("render.star", "render")
 load("schema.star", "schema")
 load("time.star", "time")
 
+LIVE_FIXTURE = '''{"events":[{"date":"2026-08-06T23:00Z","status":{"type":{"state":"in","name":"STATUS_IN_PROGRESS","shortDetail":"Q3 08:42"}},"competitions":[{"competitors":[{"score":"21","team":{"id":"85","abbreviation":"TOR","shortDisplayName":"Argonauts","color":"051c3e"}},{"score":"17","team":{"id":"86","abbreviation":"WPG","shortDisplayName":"Blue Bombers","color":"1d3d7a"}}]}]}]}'''
+FINAL_FIXTURE = '''{"events":[{"date":"2026-08-06T17:00Z","status":{"type":{"state":"post","name":"STATUS_FINAL","shortDetail":"Final"}},"competitions":[{"competitors":[{"score":"31","team":{"id":"85","abbreviation":"TOR","shortDisplayName":"Argonauts","color":"051c3e"}},{"score":"24","team":{"id":"86","abbreviation":"WPG","shortDisplayName":"Blue Bombers","color":"1d3d7a"}}]}]}]}'''
+TODAY_FIXTURE = '''{"events":[{"date":"2026-08-06T23:00Z","status":{"type":{"state":"pre","name":"STATUS_SCHEDULED","shortDetail":"7:00 PM"}},"competitions":[{"competitors":[{"score":"0","records":[{"summary":"5-2"}],"team":{"id":"85","abbreviation":"TOR","shortDisplayName":"Argonauts","color":"051c3e"}},{"score":"0","records":[{"summary":"4-3"}],"team":{"id":"86","abbreviation":"WPG","shortDisplayName":"Blue Bombers","color":"1d3d7a"}}]}]}]}'''
+TOMORROW_FIXTURE = '''{"events":[{"date":"2026-08-07T23:00Z","status":{"type":{"state":"pre","name":"STATUS_SCHEDULED","shortDetail":"7:00 PM"}},"competitions":[{"competitors":[{"score":"0","records":[{"summary":"5-2"}],"team":{"id":"85","abbreviation":"TOR","shortDisplayName":"Argonauts","color":"051c3e"}},{"score":"0","records":[{"summary":"4-3"}],"team":{"id":"86","abbreviation":"WPG","shortDisplayName":"Blue Bombers","color":"1d3d7a"}}]}]}]}'''
+FUTURE_FIXTURE = '''{"events":[{"date":"2026-08-10T23:00Z","status":{"type":{"state":"pre","name":"STATUS_SCHEDULED","shortDetail":"7:00 PM"}},"competitions":[{"competitors":[{"score":"0","records":[{"summary":"5-2"}],"team":{"id":"85","abbreviation":"TOR","shortDisplayName":"Argonauts","color":"051c3e"}},{"score":"0","records":[{"summary":"4-3"}],"team":{"id":"86","abbreviation":"WPG","shortDisplayName":"Blue Bombers","color":"1d3d7a"}}]}]}]}'''
+POSTPONED_FIXTURE = '''{"events":[{"date":"2026-08-06T23:00Z","status":{"type":{"state":"post","name":"STATUS_POSTPONED","shortDetail":"Postponed"}},"competitions":[{"competitors":[{"score":"0","team":{"id":"85","abbreviation":"TOR","shortDisplayName":"Argonauts","color":"051c3e"}},{"score":"0","team":{"id":"86","abbreviation":"WPG","shortDisplayName":"Blue Bombers","color":"1d3d7a"}}]}]}]}'''
+CANCELLED_FIXTURE = '''{"events":[{"date":"2026-08-06T23:00Z","status":{"type":{"state":"post","name":"STATUS_CANCELED","shortDetail":"Canceled"}},"competitions":[{"competitors":[{"score":"0","team":{"id":"85","abbreviation":"TOR","shortDisplayName":"Argonauts","color":"051c3e"}},{"score":"0","team":{"id":"86","abbreviation":"WPG","shortDisplayName":"Blue Bombers","color":"1d3d7a"}}]}]}]}'''
+EMPTY_FIXTURE = '''{"events":[]}'''
+
 CACHE_TTL_SECONDS = 60
 DEFAULT_LOCATION = """
 {
@@ -74,10 +83,24 @@ MAGNIFY_LOGO = """
 {
 }
 """
+TEST_FIXTURES = {
+    "live": LIVE_FIXTURE,
+    "final": FINAL_FIXTURE,
+    "today": TODAY_FIXTURE,
+    "tomorrow": TOMORROW_FIXTURE,
+    "future": FUTURE_FIXTURE,
+    "postponed": POSTPONED_FIXTURE,
+    "cancelled": CANCELLED_FIXTURE,
+    "empty": EMPTY_FIXTURE,
+}
 
 def main(config):
     renderCategory = []
     selectedTeam = config.get("selectedTeam", "all")
+    fixtureData = TEST_FIXTURES.get(config.get("_fixture_scenario", ""), config.get("_fixture_data", ""))
+    scoreMode = config.get("scoreMode", "auto")
+    if scoreMode == "league":
+        selectedTeam = "all"
     displayType = config.get("displayType", "colors")
     pregameDisplay = config.get("pregameDisplay", "record")
     displayTop = config.get("displayTop", "league")
@@ -85,12 +108,15 @@ def main(config):
     rotationSpeed = config.get("rotationSpeed", "5")
     location = config.get("location", DEFAULT_LOCATION)
     loc = json.decode(location)
-    timezone = loc["timezone"]
+    timezone = config.get("$tz", loc["timezone"])
     now = time.now().in_location(timezone)
-    datePast = now - time.parse_duration("%dh" % 1 * 24)
-    dateFuture = now + time.parse_duration("%dh" % 30 * 24)
-    league = {LEAGUE: API + "?limit=100" + (selectedTeam == "all" and " " or "&dates=" + datePast.format("20060102") + "-" + dateFuture.format("20060102"))}
-    scores = get_scores(league, selectedTeam)
+    fixtureNow = config.get("_fixture_now", "")
+    if fixtureNow != "":
+        now = time.parse_time(fixtureNow, format = "2006-01-02T15:04Z").in_location(timezone)
+    datePast = now - time.parse_duration("%dh" % (60 * 24))
+    dateFuture = now + time.parse_duration("%dh" % (180 * 24))
+    league = {LEAGUE: API + "?limit=200&dates=" + datePast.format("20060102") + "-" + dateFuture.format("20060102")}
+    scores = get_scores(league, selectedTeam, timezone, now, scoreMode, int(config.get("upcomingGames", "1")), fixtureData)
     if len(scores) > 0:
         for i, s in enumerate(scores):
             gameStatus = s["status"]["type"]["state"]
@@ -125,8 +151,8 @@ def main(config):
                 awayLogoURL = "https://i.ibb.co/5LMp8T1/transparent.png"
             else:
                 awayLogoURL = competition["competitors"][1]["team"]["logo"]
-            homeLogo = get_logoType(home, homeLogoURL)
-            awayLogo = get_logoType(away, awayLogoURL)
+            homeLogo = "" if fixtureData != "" else get_logoType(home, homeLogoURL)
+            awayLogo = "" if fixtureData != "" else get_logoType(away, awayLogoURL)
             homeLogoSize = get_logoSize(home)
             awayLogoSize = get_logoSize(away)
             homeScore = ""
@@ -137,12 +163,20 @@ def main(config):
             teamFont = "Dina_r400-6"
             scoreFont = "Dina_r400-6"
 
+            statusName = s["status"]["type"].get("name", "")
+            statusDetail = s["status"]["type"].get("shortDetail", "")
             if gameStatus == "pre":
                 gameTime = s["date"]
                 scoreFont = "CG-pixel-3x5-mono"
                 convertedTime = time.parse_time(gameTime, format = "2006-01-02T15:04Z").in_location(timezone)
-                if convertedTime.format("1/2") != now.format("1/2"):
-                    gameTime = convertedTime.format("Jan 2")
+                if statusName == "STATUS_POSTPONED":
+                    gameTime = "PPD"
+                elif statusName == "STATUS_CANCELED" or statusName == "STATUS_CANCELLED":
+                    gameTime = "CANCEL"
+                elif "Delayed" in statusDetail:
+                    gameTime = "DELAY"
+                elif convertedTime.format("1/2") != now.format("1/2"):
+                    gameTime = upcoming_label(convertedTime, now)
                 else:
                     gameTime = convertedTime.format("3:04 PM")
                 if pregameDisplay == "odds":
@@ -193,6 +227,10 @@ def main(config):
                     homeScore = ""
                     awayScore = ""
                     gameTime = "Postponed"
+                elif gameName == "STATUS_CANCELED" or gameName == "STATUS_CANCELLED":
+                    homeScore = ""
+                    awayScore = ""
+                    gameTime = "Cancelled"
                 else:
                     homeScore = competition["competitors"][0]["score"]
                     awayScore = competition["competitors"][1]["score"]
@@ -484,7 +522,17 @@ def main(config):
             ),
         )
     else:
-        return []
+        return render.Root(
+            child = render.Column(
+                expanded = True,
+                main_align = "center",
+                cross_align = "center",
+                children = [
+                    render.Text(content = "CFL", color = "#ff9f0a", font = "tb-8"),
+                    render.Text(content = "OFF-SEASON", color = "#ffffff", font = "CG-pixel-3x5-mono"),
+                ],
+            ),
+        )
 
 teamOptions = [
     schema.Option(
@@ -520,7 +568,7 @@ teamOptions = [
         value = "84",
     ),
     schema.Option(
-        display = "Toronto Argoanuts",
+        display = "Toronto Argonauts",
         value = "85",
     ),
     schema.Option(
@@ -641,6 +689,18 @@ displayTopOptions = [
     ),
 ]
 
+scoreModeOptions = [
+    schema.Option(display = "Auto", value = "auto"),
+    schema.Option(display = "Favourite team only", value = "favorite"),
+    schema.Option(display = "League scoreboard", value = "league"),
+]
+
+upcomingGameOptions = [
+    schema.Option(display = "1 game", value = "1"),
+    schema.Option(display = "2 games", value = "2"),
+    schema.Option(display = "3 games", value = "3"),
+]
+
 colorOptions = [
     schema.Option(
         display = "White",
@@ -680,11 +740,27 @@ def get_schema():
             ),
             schema.Dropdown(
                 id = "selectedTeam",
-                name = "Team Focus",
-                desc = "Only show scores for selected team.",
+                name = "Favourite team",
+                desc = "Uses the stable ESPN team identifier.",
                 icon = "gear",
                 default = teamOptions[0].value,
                 options = teamOptions,
+            ),
+            schema.Dropdown(
+                id = "scoreMode",
+                name = "Display mode",
+                desc = "Automatically show the most relevant favourite-team game or the league scoreboard.",
+                icon = "gear",
+                default = scoreModeOptions[0].value,
+                options = scoreModeOptions,
+            ),
+            schema.Dropdown(
+                id = "upcomingGames",
+                name = "Upcoming games",
+                desc = "Number of future favourite-team games to rotate when no game is active today.",
+                icon = "gear",
+                default = upcomingGameOptions[0].value,
+                options = upcomingGameOptions,
             ),
             schema.Dropdown(
                 id = "rotationSpeed",
@@ -729,29 +805,61 @@ def get_schema():
         ],
     )
 
-def get_scores(urls, team):
+def get_scores(urls, team, timezone, now, scoreMode, upcomingCount, fixtureData = ""):
     allscores = []
-    gameCount = 0
-    for i, s in urls.items():
-        data = get_cachable_data(s)
-        decodedata = json.decode(data)
-        allscores.extend(decodedata["events"])
-        if team != "all" and team != "":
-            newScores = []
-            for _, s in enumerate(allscores):
-                home = s["competitions"][0]["competitors"][0]["team"]["abbreviation"]
-                away = s["competitions"][0]["competitors"][1]["team"]["abbreviation"]
-                gameStatus = s["status"]["type"]["state"]
-                if (home == team or away == team) and gameStatus == "post":
-                    newScores.append(s)
-                elif (home == team or away == team) and gameCount == 0:
-                    if gameStatus == "in":
-                        newScores.clear()
-                    newScores.append(s)
-                    gameCount = gameCount + 1
-            allscores = newScores
-        all([i, allscores])
-    return allscores
+    if fixtureData != "":
+        allscores = json.decode(fixtureData).get("events", [])
+    else:
+        for i, s in urls.items():
+            data = get_cachable_data(s)
+            decodedata = json.decode(data)
+            allscores.extend(decodedata.get("events", []))
+            all([i, allscores])
+    if team == "all" or team == "" or scoreMode == "league":
+        return allscores
+
+    today = now.format("20060102")
+    live = []
+    finalToday = []
+    upcomingToday = []
+    future = []
+    completed = []
+    for event in allscores:
+        competitors = event["competitions"][0]["competitors"]
+        homeID = str(competitors[0]["team"].get("id", ""))
+        awayID = str(competitors[1]["team"].get("id", ""))
+        if homeID != team and awayID != team:
+            continue
+        state = event["status"]["type"]["state"]
+        localDate = time.parse_time(event["date"], format = "2006-01-02T15:04Z").in_location(timezone).format("20060102")
+        if state == "in":
+            live.append(event)
+        elif state == "post" and localDate == today:
+            finalToday.append(event)
+        elif state == "pre" and localDate == today:
+            upcomingToday.append(event)
+        elif state == "pre" and localDate > today:
+            future.append(event)
+        elif state == "post" and localDate < today:
+            completed.append(event)
+    if len(live) > 0:
+        return live
+    if len(finalToday) > 0:
+        return finalToday
+    if len(upcomingToday) > 0:
+        return upcomingToday
+    if len(future) > 0:
+        return future[:upcomingCount]
+    if len(completed) > 0:
+        return completed[-1:]
+    return []
+
+def upcoming_label(gameTime, now):
+    gameDay = gameTime.format("20060102")
+    tomorrow = (now + time.parse_duration("24h")).format("20060102")
+    if gameDay == tomorrow:
+        return "Tomorrow"
+    return gameTime.format("Mon 2")
 
 def get_odds(theOdds, theOU, team, homeaway):
     theOddsarray = theOdds.split(" ")
