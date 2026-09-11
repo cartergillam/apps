@@ -2,7 +2,7 @@
 id: cfl-scores
 name: CFL Scores
 summary: CFL football scores
-desc: Displays live and upcoming CFL scores from a data feed.
+desc: Displays server-normalized live and upcoming CFL games.
 author: LunchBox8484
 fileName: cfl_scores.star
 packageName: cflscores
@@ -12,4 +12,4 @@ tags:
   - cfl
   - football
 published: '2024-04-25T18:15:24Z'
-updated: '2025-11-29T23:55:39Z'
+updated: '2026-09-11T00:00:00Z'
