@@ -7,7 +7,8 @@ load("schema.star", "schema")
 load("time.star", "time")
 
 FONT = "CG-pixel-3x5-mono"
-FIXTURE_LOGO = "iVBORw0KGgoAAAANSUhEUgAAABAAAAATCAYAAACZZ43PAAADPklEQVR4AWxSg3IsURCdT9gUY9s2VrFt27Zt27btxbNt27bn3U5VuNvD2zh9Gti2EAgEQSKZHIPtETFJSQsKhaK3V0c1No4BX+ygODg4BBSXVyw1NTU1IAdiUGhogKdfIK2trY1WVlYWgHQGweGRDQkpaUseHh4BELMve0lpxYqwqNg9XX39817e3seJJPIJO3uHu47OLnft7OxOunt4HJdXULisrq5+ra29fWWHBUKrQhmOKKuonknPzsNj45PuJ6em400trbi0tPRNePr7B/DGxib8ydNn+MYmDTcwMDhTVlFBoxqZVGHp6ekZKmrql4srqnEODo736MEPPqqqar/WNzZ/iYqKXgIfANHS1j5v4+CUAfQVTc0tmQlJKTi7YB8fH3xwcOiqpqbmkW0dsIGYnTJ09UmMvoFBlmBwDI+MPKyiokJbXFq+ua2fnpnFTc0sGNi26BFJjPHJqZ1APj6+t+BENTSkwxn14AI8RCJxTUFB8RzYEDPG9gQUiRQqrbqm5h04oy6/Gh0bf8HFxXUDsgL1bQBzC4sTSUlJN6AHnp6eNIhFTczMQOM57+Hp+SAuPv49AjqGGJxxcnFhQFBYWBgTvkh3d2Ji6qMBkXjaxcXlupu7+3EnV/dUrLi4uMTWzu4CoDo5OdMysrIOQ9ZtAGBFJJLOA20eHp6tPggJCT3w9fO/vTWFpubmHlTPGUFBwfNgBNrXb9z8CAAI6LAdAu/t6/93cMRhEZG4rZNLJ9bW1pGlra19DM34yXbDIFhVVZWOwG+gRbt3cDpiYmI30BjvO7l5lWClpaW+qLvLtXX138CYmZl5BFG9PTU981tGRuYWu92Iikv4oqOnv4hAYmAKhMLCwk5zc4sT4eHh93V1dU9Avf8nLCz8EZvm2MSk52YWlicSU9JWgPSCoxKUZdva21eoqakdhqX7qKioe+Li4s9FRUWfObu4nc0vKvmYlV/0X0NTc1dpReVmIyMjW5QcGRwcrNfQ2LzAHZhEraytrwBz4j1QQCWnpf/3Cwi45+TsfCUqKuZAd0/fAg8/Pz0GLACRsJxcU3wDgiYFh0cdAeXU/v7+juTk5BRwwiEFmJubRwQGBkbgUwMAJLm6C4IEadwAAAAASUVORK5CYII="
+FIXTURE_LOGO = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAAAl0lEQVR4nGL5//8/A3Fg6uI9OZVzGJiZGZgYISJMROpkYGDIjnWpzA9i+PWbAWLd33+MxNsMAS4x7Xv3XmBgYZKWFmH4TyI4d+UBk1IMm2r83qNXWUiyloGBwVBbPsDNxNxAxclKi2RnMzAwvHzzUUSQl5mZiRzNcEBCaI9qHgKa//3DnhaI0vz9xy+saWkkpjBAAAAA//8G7WGWVWaStAAAAABJRU5ErkJggg=="
+FIXTURE_HOME_LOGO = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAADsUlEQVR4nKSUYUyVZRTHf/e93ItXTbaQyRYguCkBwQaTFWG1ufkhYCsimC0z/VCDCbXaFLemrj4w64NuZVajNjawWmuzK4ZzLbFNMoQtrqRMHOoFltN7Abl2uVze572nPe+9Ihr4pbO92/Oe53/+z3n+5zkniaVtE/ASUAqsSfhuAX2AFzi3WJBjEV858BHwfFpaWlJ+fkEsa8UNQ2/4w9mxocuXjEAgoIDfgANAzyOSohmw8vILpKPj2Ozk1B1TRCwZfF1kcJvo9eTklNne3j6bl5cvGgvsWYpsPyANdQUqGp7QRPfNt1XE99oDrtnwtFlfm68z1cT7Hr5yFdDZtHOL+enOcZcl6XRfdqGU4HA4IHzVBlmedWSmp1BYtR/8HXDrJ5racswjbb+4gEqgS+OWAb6SkhJRligJeuXvb9Nlucs++T+fx4UcP7BG5NcckdteHWMWFxfrvYEEF1s1sLOzMzJ/n8AJeb8mxSbYUuKRTxrWysH6HGl8OdX2rUpGxk5vm4d7vd5I4sA6TfhDZmaWhCNzC3SbkW/2rreDD+3KEJFLIhIR8bdI3hPxTIdOvDmPDs9EzYyMTO3/Xr/DwoIns2PLXUEnERMcBjgmUaaydRu6FuJCWyOmLGNk5Dr+ADy+AlYmzYC6CabJcrfLWZCbHRsfHyvShKtSZdDi3HMu5mLxEiU7QN2xl62nQrSe6n7gOXy4PYUMTy90l8cdbsORKhM6g1WaMPJPUq5B8UGIJjI0QuB9F5ii6mkPleVrEAxGxkIc+jHI113T7KjdxOrS3aBMcLu4m9TshF6tJV0bcvPE1BW+/8qktTmu4eElNdwxj55TotZvyNX+kzrDk8NXhl7s6z2vysrKnPYVZocIBKft5cDwNGe+aESxjFH/dW4EQAe5F0yBvt7f1dXhKzr2Z/2fBoxWVlYqu83CF+X28SJJ8Sz+DvXXsj1ZpPspkbsX7XasqKjQ+vmB1Hud0gAcPfLxe9Fdm3uSwzcDfHnawZwZi3eKCtkg5VhJ7trHqH1rH4x9B9Yon519IfrO3sPJQD3w1cLidRggR/cUmaLGLJGwiEyIyJSI7xUR36vxtYQSyk1bn+8uNI141u2LDQd3fMOQ6po6NeAbjNoSaNPT5q837tXAGhj4M1pdXaM0FjgGuB4eDgvtbeADp9OZtXFjqTxT9uzcOuOMXYJrsc3qj/M97v7+fodlWVqzFuACMJgYZUvaaqAJOAsEgVgiIJjw6b3UBNZ4FNH/tn8DAAD//zFWPu055LSqAAAAAElFTkSuQmCC"
 
 def main(config):
     scenario = config.get("_fixture_scenario", "")
@@ -53,91 +54,59 @@ def animation(pages, config):
 
 def game_page(game, config, snapshot_stale):
     game = dict_or_empty(game)
-    away = dict_or_empty(game.get("awayTeam", {}))
-    home = dict_or_empty(game.get("homeTeam", {}))
     status = text_or(game.get("status", "unknown"), "unknown")
-    score_visible = status in ["live", "intermission", "final"]
     stale = snapshot_stale or bool_or_false(game.get("stale", False))
-    return render.Column(
-        expanded = True,
-        children = [
-            compact_header("NHL", "STALE" if stale else display_status(game, config), stale),
-            team_row(away, number_or(game.get("awayScore", 0)) if score_visible else "", config),
-            team_row(home, number_or(game.get("homeScore", 0)) if score_visible else "", config),
-        ],
-    )
+    scheduled = status in ["scheduled", "pregame"]
+    scored = status in ["live", "intermission", "final"]
+    score = str(int(number_or(game.get("awayScore", 0)))) + "-" + str(int(number_or(game.get("homeScore", 0)))) if scored else "--"
+    # A 28-pixel score region fits two three-digit scores without touching logos.
+    score_font = "tb-8" if len(score) <= 5 else FONT
+    status_text = display_status(game, config)
+    if stale:
+        status_text = "STALE " + status_text
+    return render.Column(children = [
+        render.Row(children = [
+            team_panel(dict_or_empty(game.get("awayTeam", {})), config),
+            render.Box(width = 28, height = 25, child = render.Column(cross_align = "center", children = [
+                render.Box(width = 28, height = 8, child = render.Text(content = "NEXT" if scheduled else ("FINAL" if status == "final" else ""), font = FONT, color = "#8e8e93")),
+                render.Box(width = 28, height = 12, child = render.Text(content = "@" if scheduled else score, font = "tb-8" if scheduled else score_font, color = "#ffffff")),
+                render.Box(width = 28, height = 5),
+            ])),
+            team_panel(dict_or_empty(game.get("homeTeam", {})), config),
+        ]),
+        render.Box(width = 64, height = 7, color = "#071016", child = render.Text(content = status_text[:16], font = FONT, color = "#ffcc00" if stale else ("#5de4da" if status in ["live", "intermission"] else "#d4dce4"))),
+    ])
 
-def team_row(team, score, config):
-    team = dict_or_empty(team)
+def team_panel(team, config):
     style = text_or(config.get("team_color_background_style", "dim"), "dim")
     primary = safe_color(team.get("primaryColor", "#222222"))
-    background = "#000000"
-    if style == "full":
-        background = primary
-    elif style == "dim":
-        background = dim_color(primary)
-    return render.Box(
-        width = 64,
-        height = 12,
-        color = background,
-        child = render.Row(
-            expanded = True,
-            main_align = "space_between",
-            cross_align = "center",
-            children = [team_mark(team, background), render.Text(content = text_or(team.get("abbreviation", "?"), "?")[:3], color = "#ffffff", font = "tb-8"), render.Text(content = str(number_or(score, ""))[:5] if score != "" else "", color = "#ffffff", font = "tb-8")],
-        ),
-    )
+    background = primary if style == "full" else (primary + "55" if style == "dim" else "#000000")
+    return render.Box(width = 18, height = 25, color = background, child = render.Column(children = [
+        render.Box(width = 18, height = 20, child = team_mark(team, background)),
+        render.Box(width = 18, height = 5, color = "#00000099", child = render.Text(content = text_or(team.get("abbreviation", "?"), "?")[:4], font = FONT, color = "#ffffff")),
+    ]))
+
 
 def no_live_page(next_game, config, stale):
     next_game = dict_or_none(next_game)
     if next_game == None:
         return neutral_page("STALE" if stale else "NO GAME")
-    away = dict_or_empty(next_game.get("awayTeam", {}))
-    home = dict_or_empty(next_game.get("homeTeam", {}))
-    return render.Column(
-        expanded = True,
-        children = [
-            compact_header("NHL", "STALE" if stale else "NEXT", stale),
-            render.Box(width = 64, height = 16, child = render.Row(
-                expanded = True,
-                main_align = "space_around",
-                cross_align = "center",
-                children = [compact_team(away), render.Text(content = "@", color = "#8e8e93", font = FONT), compact_team(home)],
-            )),
-            render.Box(width = 64, height = 8, child = render.Row(
-                expanded = True,
-                main_align = "center",
-                cross_align = "center",
-                children = [render.Text(content = compact_start(text_or_empty(next_game.get("scheduledAt", "")), config), color = "#ffcc00" if stale else "#ffffff", font = FONT)],
-            )),
-        ],
-    )
+    return game_page(next_game, config, stale)
 
-def compact_header(league, status, stale = False):
-    return render.Box(width = 64, height = 8, child = render.Row(
-        expanded = True,
-        main_align = "space_between",
-        cross_align = "center",
-        children = [render.Text(content = league, color = "#8e8e93", font = FONT), render.Text(content = status[:11], color = "#ffcc00" if stale else status_color(status), font = FONT)],
-    ))
 
-def compact_team(team):
-    team = dict_or_empty(team)
-    background = dim_color(safe_color(team.get("primaryColor", "#222222")))
-    return render.Row(children = [team_mark(team, background), render.Text(content = text_or(team.get("abbreviation", "?"), "?")[:3], color = "#ffffff", font = FONT)])
 
 def team_mark(team, background):
     team = dict_or_empty(team)
     logo = text_or_empty(team.get("logoData", ""))
     if logo != "":
-        return render.Box(width = 14, height = 12, child = render.Image(src = base64.decode(logo), width = 12, height = 12))
-    return render.Box(width = 14, height = 12, child = render.Box(width = 10, height = 10, color = background))
+        return render.Image(src = base64.decode(logo), width = 18, height = 18)
+    return render.Box(width = 18, height = 18, child = render.Text(content = text_or(team.get("abbreviation", "?"), "?")[:3], font = FONT, color = "#ffffff"))
 
 def compact_start(value, config):
     value = text_or_empty(value)
     if value == "":
         return "TBD"
-    return time.parse_time(value).in_location(config.get("$tz", "UTC")).format("Mon 3:04").upper()[:15]
+    return time.parse_time(value).in_location(config.get("$tz", "UTC")).format("Mon 3:04PM").upper()[:15]
 
 def neutral_page(message):
     return render.Column(
@@ -154,19 +123,16 @@ def display_status(game, config):
     game = dict_or_empty(game)
     status = text_or(game.get("status", "unknown"), "unknown")
     if status in ["scheduled", "pregame"]:
-        value = text_or_empty(game.get("scheduledAt", ""))
-        return ("PRE " + local_clock(value, config)) if status == "pregame" else compact_start(value, config)
+        value = text_or_empty(game.get("scheduledLocal", "")) or text_or_empty(game.get("scheduledAt", ""))
+        return compact_start(value, config)
     detail = text_or_empty(game.get("statusDetail", ""))
-    if status == "live" and detail != "":
-        return detail[:11]
-    return {
-        "intermission": "INT",
-        "delayed": "DLY",
-        "suspended": "SUSP",
-        "postponed": "PPD",
-        "cancelled": "CANCEL",
-        "final": "FINAL " + text_or_empty(game.get("periodLabel", "")) if text_or_empty(game.get("periodLabel", "")) in ["OT", "SO"] else "FINAL",
-    }.get(status, "UNKNOWN")
+    if status == "live":
+        return text_or_empty(game.get("periodLabel", "")) + " " + text_or_empty(game.get("clock", ""))
+    if status == "intermission":
+        return "HALFTIME" if "HALF" in detail.upper() else "INT " + text_or_empty(game.get("periodLabel", ""))
+    if status == "final":
+        return detail or "FINAL"
+    return {"delayed": "DELAYED", "suspended": "SUSPENDED", "postponed": "POSTPONED", "cancelled": "CANCELLED"}.get(status, "UNKNOWN")
 
 def local_clock(value, config):
     value = text_or_empty(value)
@@ -248,7 +214,7 @@ def bool_or_false(value):
 def fixture_team(team_id, abbreviation, color, with_logo = True):
     team = {"providerId": str(team_id), "abbreviation": abbreviation, "primaryColor": color}
     if with_logo:
-        team["logoData"] = FIXTURE_LOGO
+        team["logoData"] = FIXTURE_LOGO if abbreviation in ["TOR", "BUF", "LAL"] else FIXTURE_HOME_LOGO
     return team
 
 def fixture_game(game_id, status, period, clock, away_score = 1, home_score = 2, scheduled = "2026-01-10T00:30:00Z", stale = False, with_logos = True):
@@ -274,6 +240,11 @@ def fixture_game(game_id, status, period, clock, away_score = 1, home_score = 2,
     }
 
 def fixture_snapshot(scenario):
+    if scenario in ["logo_missing", "large_scores", "tied", "next_worst"]:
+        game = fixture_game(99, "scheduled" if scenario == "next_worst" else "live", "P3" if "nhl" == "nhl" else "Q4", "00:01", 118 if "nba" == "nhl" else 24, 118 if scenario == "tied" and "nba" == "nhl" else 24, with_logos = scenario != "logo_missing")
+        game["awayTeam"]["abbreviation"] = "WSH"
+        game["homeTeam"]["abbreviation"] = "VGK" if "nhl" == "nhl" else "LAC"
+        return {"games": [game]}
     statuses = {
         "scheduled": [fixture_game(1, "scheduled", "", "")],
         "pregame": [fixture_game(2, "pregame", "", "")],

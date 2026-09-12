@@ -1,9 +1,10 @@
 #!/bin/sh
 set -eu
 
-out_dir="$(mktemp -d "${TMPDIR:-/tmp}/tronbyt-nba-render-tests.XXXXXX")"
+out_dir="${TRONBYT_RENDER_OUTPUT:-$(mktemp -d "${TMPDIR:-/tmp}/tronbyt-nba-render-tests.XXXXXX")}"
+mkdir -p "$out_dir"
 
-for scenario in off_day future scheduled pregame q1 q2 halftime q3 q4 ot double_ot final final_ot delayed postponed cancelled suspended unknown stale timezone_boundary empty worst_case; do
+for scenario in logo_missing large_scores tied next_worst off_day future scheduled pregame q1 q2 halftime q3 q4 ot double_ot final final_ot delayed postponed cancelled suspended unknown stale timezone_boundary empty worst_case; do
   pixlet render apps/nbalive/nba_live.star \
     mode=favorite teamid=28 team_color_background_style=dim '$tz=America/Toronto' \
     _fixture_now=2026-10-01T16:00:00Z "_fixture_scenario=$scenario" \

@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
-out_dir="$(mktemp -d "${TMPDIR:-/tmp}/tronbyt-nhl-render-tests.XXXXXX")"
-for scenario in scheduled pregame live_p1 live_p2 live_p3 intermission overtime shootout final final_ot final_so delayed postponed suspended cancelled stale timezone_boundary future no_games worst_case; do
+out_dir="${TRONBYT_RENDER_OUTPUT:-$(mktemp -d "${TMPDIR:-/tmp}/tronbyt-nhl-render-tests.XXXXXX")}"
+mkdir -p "$out_dir"
+for scenario in logo_missing large_scores tied next_worst scheduled pregame live_p1 live_p2 live_p3 intermission overtime shootout final final_ot final_so delayed postponed suspended cancelled stale timezone_boundary future no_games worst_case; do
   pixlet render apps/nhllive/nhl_live.star "_fixture_scenario=$scenario" '$tz=America/Toronto' --output "$out_dir/$scenario.webp"
 done
 pixlet render apps/nhllive/nhl_live.star _fixture_scenario=multiple mode=all_live --output "$out_dir/multiple.webp"

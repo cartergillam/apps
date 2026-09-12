@@ -1,6 +1,7 @@
 """Market Watch renders sanitized quote data injected by tronbyt-server."""
 
 load("encoding/json.star", "json")
+load("encoding/base64.star", "base64")
 load("render.star", "render")
 load("schema.star", "schema")
 
@@ -10,75 +11,102 @@ DELAYED_QUOTE_FIXTURE = '''[{"symbol":"RY:TSX","displayName":"Royal Bank of Cana
 STALE_QUOTE_FIXTURE = '''[{"symbol":"AAPL","displayName":"Apple Inc","price":212.48,"absoluteChange":2.15,"percentageChange":1.02,"exchange":"NASDAQ","mic":"XNAS","currency":"USD","marketStatus":"closed","quoteTimestamp":"2026-08-06T14:00:00Z","providerUpdated":"2026-08-06T14:00:00Z","delayed":false,"stale":true}]'''
 MULTI_QUOTE_FIXTURE = '''[{"symbol":"AAPL","displayName":"Apple Inc","price":212.48,"absoluteChange":2.15,"percentageChange":1.02,"exchange":"NASDAQ","mic":"XNAS","currency":"USD","marketStatus":"open","quoteTimestamp":"2026-08-06T15:45:00Z","providerUpdated":"2026-08-06T15:45:00Z","delayed":false,"stale":false},{"symbol":"SHOP:TSX","displayName":"Shopify","price":156.32,"absoluteChange":-1.84,"percentageChange":-1.16,"exchange":"Toronto Stock Exchange","mic":"XTSE","currency":"CAD","marketStatus":"closed","quoteTimestamp":"2026-08-06T15:44:00Z","providerUpdated":"2026-08-06T15:44:00Z","delayed":false,"stale":false},{"symbol":"MSFT","displayName":"Microsoft","price":481.02,"absoluteChange":-3.11,"percentageChange":-0.64,"exchange":"NASDAQ","mic":"XNAS","currency":"USD","marketStatus":"open","quoteTimestamp":"2026-08-06T15:45:00Z","providerUpdated":"2026-08-06T15:45:00Z","delayed":false,"stale":false}]'''
 
+FONT = "CG-pixel-3x5-mono"
+TICKER_WIDTH = 96
+TICKER_DELAY = 40
+
 def main(config):
     scenario = config.get("_fixture_scenario", "")
-    raw = fixture_data(scenario)
+    raw = fixture_data(scenario) or config.get("$provider_data", "")
     if raw == "":
-        raw = config.get("$provider_data", "")
-    if raw == "":
-        return status_frame(fixture_error(scenario) or provider_error(config, "SETUP REQUIRED"), "#ff9f0a")
-    quotes = json.decode(raw)
+        return status_frame(fixture_error(scenario) or provider_error(config, "SETUP REQUIRED"), "#ffb454")
+    decoded = json.decode(raw)
+    quotes = [q for q in decoded if type(q) == "dict"][:5] if type(decoded) == "list" else []
     if len(quotes) == 0:
-        return status_frame("NO QUOTES", "#ff9f0a")
-    mode = config.get("display_mode", "one")
-    duration = int(config.get("symbol_duration", "5")) * 1000
-    pages = []
-    if mode == "two":
-        for i, _ in enumerate(quotes):
-            if i % 2 == 0:
-                pages.append(two_quote_page(quotes[i:i + 2]))
-    else:
-        for quote in quotes:
-            pages.append(one_quote_page(quote, config))
-    return render.Root(
-        delay = duration,
-        show_full_animation = True,
-        child = render.Animation(children = pages),
-    )
+        return status_frame("NO QUOTES", "#ffb454")
+    if config.get("display_mode", "focus") == "ticker":
+        return ticker(quotes, config)
+    # Legacy one/two mode values safely open in the detailed Focus design.
+    return render.Root(delay = int(config.get("symbol_duration", "5")) * 1000, show_full_animation = True, child = render.Animation(children = [focus(q, config) for q in quotes]))
 
-def one_quote_page(quote, config):
-    change = float(quote.get("absoluteChange", 0))
-    color = "#30d158" if change >= 0 else "#ff453a"
-    status = quote_status(quote)
-    change_parts = []
-    if config.bool("show_absolute_change"):
-        change_parts.append(signed(change))
-    if config.bool("show_percentage_change"):
-        change_parts.append(signed(float(quote.get("percentageChange", 0))) + "%")
-    return render.Column(
-        expanded = True,
-        main_align = "space_between",
-        cross_align = "center",
-        children = [
-            render.Row(
-                expanded = True,
-                main_align = "space_between",
-                children = [
-                    render.Text(content = display_symbol(quote.get("symbol", "?"))[:6], color = "#ffffff", font = "tb-8"),
-                    render.Text(content = status[:6], color = status_color(quote), font = "CG-pixel-3x5-mono"),
-                ],
-            ),
-            render.Text(content = price(quote.get("price", 0)), color = "#ffffff", font = "tom-thumb"),
-            render.Text(content = (" ".join(change_parts) if len(change_parts) > 0 else "--")[:15], color = color, font = "CG-pixel-3x5-mono"),
-        ],
-    )
+def focus(quote, config):
+    error = quote.get("errorCode", "")
+    symbol = display_symbol(text(quote.get("symbol"), "?"))
+    return render.Column(children = [
+        render.Row(children = [
+            render.Box(width = 38, height = 7, child = render.Text(content = short(symbol, 9), font = FONT, color = "#ffffff")),
+            render.Box(width = 26, height = 7, child = render.Text(content = "PLAN" if error == "provider_entitlement_required" else quote_status(quote), font = FONT, color = status_color(quote))),
+        ]),
+        render.Row(children = [
+            render.Box(width = 20, height = 18, child = company_mark(quote)),
+            render.Box(width = 44, height = 18, child = render.Column(children = [
+                render.Box(width = 44, height = 11, child = render.Text(content = "UNAVAILABLE" if error else price(number(quote.get("price"))), font = FONT if error else "tb-8", color = "#ffffff")),
+                render.Box(width = 44, height = 7, child = render.Text(content = "PLAN REQD" if error == "provider_entitlement_required" else ("CHECK LIST" if error else movement(quote, config)), font = FONT, color = "#ffb454" if error else movement_color(quote))),
+            ])),
+        ]),
+        render.Box(width = 64, height = 7, color = "#0c1925", child = render.Text(content = listing_label(quote)[:16], font = FONT, color = "#9bb5c8")),
+    ])
 
-def two_quote_page(quotes):
-    rows = []
-    for quote in quotes:
-        change = float(quote.get("percentageChange", 0))
-        rows.append(render.Row(
-            expanded = True,
-            main_align = "space_between",
-            children = [
-                render.Text(content = display_symbol(quote.get("symbol", "?"))[:4], color = status_color(quote), font = "CG-pixel-3x5-mono"),
-                render.Text(content = price(quote.get("price", 0))[:6], color = "#ffffff", font = "CG-pixel-3x5-mono"),
-                render.Text(content = (signed(change) + "%")[:6], color = "#30d158" if change >= 0 else "#ff453a", font = "CG-pixel-3x5-mono"),
-            ],
-        ))
-    if len(rows) == 1:
-        rows.append(render.Box(height = 10))
-    return render.Column(expanded = True, main_align = "space_around", children = rows)
+def ticker(quotes, config):
+    # One pixel every 40 ms. A duplicate first card supplies the wraparound
+    # pixels; offsets stop exactly one cycle later, before any blank/reset.
+    cards = [ticker_card(q, config) for q in quotes]
+    cards.append(ticker_card(quotes[0], config))
+    return render.Root(delay = TICKER_DELAY, show_full_animation = True, child = render.Marquee(
+        width = 64,
+        offset_start = 0,
+        offset_end = TICKER_WIDTH + 65,
+        child = render.Row(children = cards),
+    ))
+
+def ticker_card(quote, config):
+    error = quote.get("errorCode", "")
+    return render.Row(children = [
+        render.Box(width = 20, height = 32, child = render.Column(children = [
+            render.Box(width = 20, height = 24, child = company_mark(quote)),
+            render.Box(width = 20, height = 8, child = render.Text(content = text(quote.get("currency"), "---")[:3], font = FONT, color = "#9bb5c8")),
+        ])),
+        render.Column(children = [
+            render.Box(width = 68, height = 8, child = render.Text(content = short(display_symbol(text(quote.get("symbol"), "?")), 15), font = FONT, color = "#ffffff")),
+            render.Box(width = 68, height = 10, child = render.Text(content = "PLAN REQUIRED" if error == "provider_entitlement_required" else ("CHECK LISTING" if error else price(number(quote.get("price")))), font = FONT if error else "tb-8", color = "#ffb454" if error else "#ffffff")),
+            render.Box(width = 68, height = 7, child = render.Text(content = "" if error else movement(quote, config), font = FONT, color = movement_color(quote))),
+            render.Box(width = 68, height = 7, color = "#0c1925", child = render.Text(content = (venue(quote) + " " + quote_status(quote))[:16], font = FONT, color = status_color(quote))),
+        ]),
+        render.Box(width = 8, height = 32),
+    ])
+
+def company_mark(quote):
+    logo = text(quote.get("logoData"), "")
+    if logo != "":
+        return render.Box(width = 18, height = 18, color = "#e5e9ee", child = render.Image(src = base64.decode(logo), width = 18, height = 18))
+    return render.Box(width = 18, height = 18, color = "#15324a", child = render.Text(content = display_symbol(text(quote.get("symbol"), "?"))[:3], font = FONT, color = "#b5dfff"))
+
+def movement(quote, config):
+    absolute = config.get("movement_format", "") == "value"
+    if config.get("movement_format", "auto") == "auto":
+        absolute = config.bool("show_absolute_change", True) and not config.bool("show_percentage_change", True)
+    value = number(quote.get("absoluteChange" if absolute else "percentageChange"))
+    return signed(value) + ("" if absolute else "%")
+
+def movement_color(quote):
+    value = number(quote.get("absoluteChange"))
+    return "#4be6a0" if value > 0 else ("#ff657a" if value < 0 else "#aab8c5")
+
+def venue(quote):
+    mic = text(quote.get("mic"), "")
+    return {"XTSE": "TSX", "XNAS": "NASDAQ", "XNYS": "NYSE", "ARCX": "ARCA"}.get(mic, short(text(quote.get("exchange"), mic or "AUTO"), 8))
+
+def listing_label(quote):
+    return text(quote.get("currency"), "---") + " " + venue(quote)
+
+def short(value, length):
+    return value if len(value) <= length else value[:length - 1] + "~"
+
+def text(value, fallback):
+    return value if type(value) == "string" and value else fallback
+
+def number(value):
+    return value if type(value) in ["int", "float"] else 0
 
 def status_frame(message, color):
     return render.Root(child = render.Column(
@@ -119,8 +147,10 @@ def display_symbol(value):
 
 def price(value):
     value = float(value)
-    if value >= 1000:
-        return str(int(value))
+    if value >= 1000000:
+        return decimal2(value / 1000000) + "M"
+    if value >= 10000:
+        return decimal2(value / 1000) + "K"
     return decimal2(value)
 
 def signed(value):
@@ -129,8 +159,9 @@ def signed(value):
 def decimal2(value):
     negative = value < 0
     absolute = -value if negative else value
-    whole = int(absolute)
-    cents = int((absolute - whole) * 100)
+    rounded = int(absolute * 100 + 0.5)
+    whole = rounded // 100
+    cents = rounded % 100
     result = str(whole) + "." + ("0" if cents < 10 else "") + str(cents)
     return "-" + result if negative else result
 
@@ -143,8 +174,10 @@ def market_status(value):
 def quote_status(quote):
     if quote.get("stale", False):
         return "STALE"
-    if quote.get("delayed", False):
+    if quote.get("eod", False):
         return "EOD"
+    if quote.get("delayed", False):
+        return "DELAY"
     return market_status(quote.get("marketStatus", "unknown"))
 
 def quote_badge(quote):
@@ -157,18 +190,47 @@ def quote_badge(quote):
 
 def status_color(quote):
     status = quote_status(quote)
-    if status == "STALE" or status == "EOD":
+    if status in ["STALE", "EOD", "DELAY"]:
         return "#ffcc00"
     if status == "OPEN":
         return "#30d158"
     return "#8e8e93"
 
 def fixture_data(scenario):
+    if scenario in ["aapl", "five", "two", "unchanged", "long", "same_company", "logo_absent", "mixed_plan"]:
+        apple = json.decode(OPEN_QUOTE_FIXTURE)[0]
+        apple["logoData"] = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAABnUlEQVR4nJTTz6sBURQH8PPGpaFZ2snKAk1sWCgLJUpZqalZUOQvsPQ3UErKf2BlYaXZ2FhIykrZWFnYKErzg4tyX94P5s7oue/s7sz305w7ncMRhlosFs1m83A4WJ7DW9lqtVwul9fr/Tfu9/vwVdVq1f72L3y73WKxGAAEg8HtdmsPcGArVVUxxgBwOp0IIaVSaTgc8jyv67ol+XH/+m8pitJut5fLpdvtTqVSkiQRQiaTiaIo6/VaEIRkMlmv1yORyA949NBoNOxdcJy1NZ7nZ7MZdefxeGyXL6tQKOz3ewpLksQiQ6GQYRjUDzMMYz6fs2BZlj0ez/NSAKDruqZpLNjv95uPd4wQcjgcLHiz2VBnQsjlchFFkQWLoogxtk5YuVxmwQBQqVTO5zOFB4MBIwaAbDZ7vV6f45nL5cLhMCP2+XwIITBPWK/XY5GCIKxWqxdbVSwW3+JOp/N6JTVNy2Qy3yGEUDQaTafTgUDgIWu1mjlPbRUAHI/Hbre72+3y+XwikXA6naqqjkaj6XQaj8dlWTaHPwMAAP//yEnZbRT/mzYAAAAASUVORK5CYII="
+        cad = json.decode(CLOSED_QUOTE_FIXTURE)[0]
+        usd = dict(cad)
+        usd.update({"symbol": "SHOP", "mic": "XNYS", "exchange": "NYSE", "currency": "USD", "price": 119.22})
+        if scenario == "aapl":
+            return json.encode([apple])
+        if scenario == "two":
+            return json.encode([apple, cad])
+        if scenario == "same_company":
+            return json.encode([cad, usd])
+        if scenario == "logo_absent":
+            return OPEN_QUOTE_FIXTURE
+        if scenario == "long":
+            apple.update({"symbol": "VERYLONGTICKER1", "displayName": "A very long company name", "price": 1234567.89})
+            return json.encode([apple])
+        if scenario == "unchanged":
+            apple.update({"absoluteChange": 0, "percentageChange": 0})
+            return json.encode([apple])
+        if scenario == "mixed_plan":
+            cad["errorCode"] = "provider_entitlement_required"
+            return json.encode([apple, cad])
+        nvidia = dict(apple)
+        nvidia.update({"symbol": "NVDA", "logoData": "", "price": 184.52, "absoluteChange": -1.12, "percentageChange": -0.6})
+        eod = json.decode(DELAYED_QUOTE_FIXTURE)[0]
+        eod["eod"] = True
+        return json.encode([apple, nvidia, cad, usd, eod])
     return {
         "open": OPEN_QUOTE_FIXTURE,
         "closed": CLOSED_QUOTE_FIXTURE,
         "tsx": CLOSED_QUOTE_FIXTURE,
         "delayed": DELAYED_QUOTE_FIXTURE,
+        "eod": DELAYED_QUOTE_FIXTURE.replace('"delayed":true', '"eod":true,"delayed":true'),
         "stale": STALE_QUOTE_FIXTURE,
         "multiple": MULTI_QUOTE_FIXTURE,
     }.get(scenario, "")
@@ -188,16 +250,20 @@ def get_schema():
         version = "1",
         fields = [
             schema.Text(id = "credential_id", name = "Managed market credential", desc = "Logical server credential ID. The secret is never sent to this app.", icon = "gear", default = "market-primary"),
+            schema.Text(id = "watchlist", name = "Watchlist listings", desc = "Managed by the mobile stock picker. Leave empty to use legacy symbols.", icon = "star", default = ""),
             schema.Text(id = "symbols", name = "Symbols", desc = "One to five unique comma-separated symbols, such as AAPL or SHOP:TSX. Availability depends on your provider plan.", icon = "gear", default = "AAPL"),
-            schema.Dropdown(id = "display_mode", name = "Display mode", desc = "Use readable pages rather than squeezing every symbol into one frame.", icon = "gear", default = "one", options = [
-                schema.Option(display = "One stock per frame", value = "one"),
-                schema.Option(display = "Two-stock split", value = "two"),
+            schema.Dropdown(id = "display_mode", name = "Display mode", desc = "Focus on one stock or scroll the whole watchlist continuously.", icon = "gear", default = "focus", options = [
+                schema.Option(display = "Focus", value = "focus"),
+                schema.Option(display = "Ticker", value = "ticker"),
+                schema.Option(display = "Focus (legacy)", value = "one"),
+                schema.Option(display = "Focus (legacy split)", value = "two"),
             ]),
             schema.Dropdown(id = "symbol_duration", name = "Per-symbol duration", desc = "Seconds per page.", icon = "gear", default = "5", options = [
                 schema.Option(display = "3 seconds", value = "3"),
                 schema.Option(display = "5 seconds", value = "5"),
                 schema.Option(display = "8 seconds", value = "8"),
             ]),
+            schema.Dropdown(id = "movement_format", name = "Movement", desc = "Show the percentage or price change in the listing currency.", icon = "gear", default = "auto", options = [schema.Option(display = "Existing preference", value = "auto"), schema.Option(display = "Percentage", value = "percent"), schema.Option(display = "Price change", value = "value")]),
             schema.Toggle(id = "show_absolute_change", name = "Absolute change", desc = "Show the price change.", icon = "gear", default = True),
             schema.Toggle(id = "show_percentage_change", name = "Percentage change", desc = "Show the percentage change.", icon = "gear", default = True),
         ],
