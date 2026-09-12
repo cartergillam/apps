@@ -18,26 +18,28 @@ def main(config):
             return render.Root(child = neutral_page(provider_error(config)))
         snapshot = json.decode(raw)
 
-    mode = config.get("mode", "favorite")
-    team_id = str(config.get("teamid", "10"))
+    snapshot = dict_or_empty(snapshot)
+
+    mode = text_or(config.get("mode", "favorite"), "favorite")
+    team_id = text_or(config.get("teamid", "10"), "10")
 
     # Compatibility: historical teamid=0 selected a random league team.
     # The deterministic successor is the All Live Games mode.
     if team_id == "0":
         mode = "all_live"
 
-    games = snapshot.get("games", [])
-    stale = snapshot.get("stale", False)
+    games = dictionaries(snapshot.get("games", []))
+    stale = bool_or_false(snapshot.get("stale", False))
     if mode == "all_live":
         pages = [game_page(game, config, stale) for game in games if is_live(game)]
         if len(pages) == 0:
-            pages = [no_live_page(snapshot.get("nextGame"), config, stale)]
+            pages = [no_live_page(dict_or_none(snapshot.get("nextGame")), config, stale)]
         return animation(pages, config)
 
     if len(games) == 0:
         if config.bool("gameday", False):
             return []
-        return render.Root(child = no_live_page(snapshot.get("nextGame"), config, stale))
+        return render.Root(child = no_live_page(dict_or_none(snapshot.get("nextGame")), config, stale))
     return animation([game_page(game, config, stale) for game in games], config)
 
 def animation(pages, config):
@@ -50,22 +52,24 @@ def animation(pages, config):
     )
 
 def game_page(game, config, snapshot_stale):
-    away = game.get("awayTeam", {})
-    home = game.get("homeTeam", {})
-    status = game.get("status", "unknown")
+    game = dict_or_empty(game)
+    away = dict_or_empty(game.get("awayTeam", {}))
+    home = dict_or_empty(game.get("homeTeam", {}))
+    status = text_or(game.get("status", "unknown"), "unknown")
     score_visible = status in ["live", "intermission", "final"]
-    stale = snapshot_stale or game.get("stale", False)
+    stale = snapshot_stale or bool_or_false(game.get("stale", False))
     return render.Column(
         expanded = True,
         children = [
             compact_header("NHL", "STALE" if stale else display_status(game, config), stale),
-            team_row(away, game.get("awayScore", 0) if score_visible else "", config),
-            team_row(home, game.get("homeScore", 0) if score_visible else "", config),
+            team_row(away, number_or(game.get("awayScore", 0)) if score_visible else "", config),
+            team_row(home, number_or(game.get("homeScore", 0)) if score_visible else "", config),
         ],
     )
 
 def team_row(team, score, config):
-    style = config.get("team_color_background_style", "dim")
+    team = dict_or_empty(team)
+    style = text_or(config.get("team_color_background_style", "dim"), "dim")
     primary = safe_color(team.get("primaryColor", "#222222"))
     background = "#000000"
     if style == "full":
@@ -80,15 +84,16 @@ def team_row(team, score, config):
             expanded = True,
             main_align = "space_between",
             cross_align = "center",
-            children = [team_mark(team, background), render.Text(content = team.get("abbreviation", "?")[:3], color = "#ffffff", font = "tb-8"), render.Text(content = str(score)[:5], color = "#ffffff", font = "tb-8")],
+            children = [team_mark(team, background), render.Text(content = text_or(team.get("abbreviation", "?"), "?")[:3], color = "#ffffff", font = "tb-8"), render.Text(content = str(number_or(score, ""))[:5] if score != "" else "", color = "#ffffff", font = "tb-8")],
         ),
     )
 
 def no_live_page(next_game, config, stale):
+    next_game = dict_or_none(next_game)
     if next_game == None:
         return neutral_page("STALE" if stale else "NO GAME")
-    away = next_game.get("awayTeam", {})
-    home = next_game.get("homeTeam", {})
+    away = dict_or_empty(next_game.get("awayTeam", {}))
+    home = dict_or_empty(next_game.get("homeTeam", {}))
     return render.Column(
         expanded = True,
         children = [
@@ -103,7 +108,7 @@ def no_live_page(next_game, config, stale):
                 expanded = True,
                 main_align = "center",
                 cross_align = "center",
-                children = [render.Text(content = compact_start(next_game.get("scheduledAt", ""), config), color = "#ffcc00" if stale else "#ffffff", font = FONT)],
+                children = [render.Text(content = compact_start(text_or_empty(next_game.get("scheduledAt", "")), config), color = "#ffcc00" if stale else "#ffffff", font = FONT)],
             )),
         ],
     )
@@ -117,16 +122,19 @@ def compact_header(league, status, stale = False):
     ))
 
 def compact_team(team):
+    team = dict_or_empty(team)
     background = dim_color(safe_color(team.get("primaryColor", "#222222")))
-    return render.Row(children = [team_mark(team, background), render.Text(content = team.get("abbreviation", "?")[:3], color = "#ffffff", font = FONT)])
+    return render.Row(children = [team_mark(team, background), render.Text(content = text_or(team.get("abbreviation", "?"), "?")[:3], color = "#ffffff", font = FONT)])
 
 def team_mark(team, background):
-    logo = team.get("logoData", "")
+    team = dict_or_empty(team)
+    logo = text_or_empty(team.get("logoData", ""))
     if logo != "":
         return render.Box(width = 14, height = 12, child = render.Image(src = base64.decode(logo), width = 12, height = 12))
     return render.Box(width = 14, height = 12, child = render.Box(width = 10, height = 10, color = background))
 
 def compact_start(value, config):
+    value = text_or_empty(value)
     if value == "":
         return "TBD"
     return time.parse_time(value).in_location(config.get("$tz", "UTC")).format("Mon 3:04").upper()[:15]
@@ -143,11 +151,12 @@ def neutral_page(message):
     )
 
 def display_status(game, config):
-    status = game.get("status", "unknown")
+    game = dict_or_empty(game)
+    status = text_or(game.get("status", "unknown"), "unknown")
     if status in ["scheduled", "pregame"]:
-        value = game.get("scheduledAt", "")
+        value = text_or_empty(game.get("scheduledAt", ""))
         return ("PRE " + local_clock(value, config)) if status == "pregame" else compact_start(value, config)
-    detail = game.get("statusDetail", "")
+    detail = text_or_empty(game.get("statusDetail", ""))
     if status == "live" and detail != "":
         return detail[:11]
     return {
@@ -156,16 +165,17 @@ def display_status(game, config):
         "suspended": "SUSP",
         "postponed": "PPD",
         "cancelled": "CANCEL",
-        "final": "FINAL " + game.get("periodLabel", "") if game.get("periodLabel", "") in ["OT", "SO"] else "FINAL",
+        "final": "FINAL " + text_or_empty(game.get("periodLabel", "")) if text_or_empty(game.get("periodLabel", "")) in ["OT", "SO"] else "FINAL",
     }.get(status, "UNKNOWN")
 
 def local_clock(value, config):
+    value = text_or_empty(value)
     if value == "":
         return "TBD"
     return time.parse_time(value).in_location(config.get("$tz", "UTC")).format("3:04")
 
 def is_live(game):
-    return game.get("status", "") in ["live", "intermission"]
+    return text_or_empty(dict_or_empty(game).get("status", "")) in ["live", "intermission"]
 
 def status_badge(status):
     return {
@@ -181,6 +191,7 @@ def status_badge(status):
     }.get(status, "NHL")
 
 def status_color(status):
+    status = text_or_empty(status)
     if status in ["live", "intermission"]:
         return "#30d158"
     if status in ["delayed", "suspended", "postponed", "cancelled"]:
@@ -190,6 +201,7 @@ def status_color(status):
     return "#ffffff"
 
 def safe_color(value):
+    value = text_or_empty(value)
     if len(value) == 7 and value[0] == "#":
         return value
     return "#222222"
@@ -200,13 +212,38 @@ def dim_color(value):
     return value + "55"
 
 def provider_error(config):
-    raw = config.get("$provider_error", "")
+    raw = text_or_empty(config.get("$provider_error", ""))
     if raw == "":
         return "DATA UNAVAILABLE"
-    code = json.decode(raw).get("code", "")
+    code = text_or_empty(dict_or_empty(json.decode(raw)).get("code", ""))
     if code == "sports_team_invalid":
         return "CHOOSE TEAM"
     return "DATA UNAVAILABLE"
+
+def dictionaries(value):
+    return [item for item in list_or_empty(value) if type(item) == "dict"]
+
+def list_or_empty(value):
+    return value if type(value) == "list" else []
+
+def dict_or_empty(value):
+    return value if type(value) == "dict" else {}
+
+def dict_or_none(value):
+    return value if type(value) == "dict" else None
+
+def text_or_empty(value):
+    return value if type(value) == "string" else ""
+
+def text_or(value, fallback):
+    value = text_or_empty(value)
+    return value if value != "" else fallback
+
+def number_or(value, fallback = 0):
+    return value if type(value) in ["int", "float"] else fallback
+
+def bool_or_false(value):
+    return value if type(value) == "bool" else False
 
 def fixture_team(team_id, abbreviation, color, with_logo = True):
     team = {"providerId": str(team_id), "abbreviation": abbreviation, "primaryColor": color}

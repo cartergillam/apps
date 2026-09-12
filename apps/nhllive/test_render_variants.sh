@@ -9,6 +9,8 @@ pixlet render apps/nhllive/nhl_live.star _fixture_scenario=no_live mode=all_live
 pixlet render apps/nhllive/nhl_live.star _fixture_scenario=live_p1 team_color_background_style=off --output "$out_dir/background-off.webp"
 pixlet render apps/nhllive/nhl_live.star _fixture_scenario=live_p1 team_color_background_style=full --output "$out_dir/background-full.webp"
 pixlet render apps/nhllive/nhl_live.star '$provider_error={"code":"sports_provider_unavailable","message":"NHL data is temporarily unavailable"}' --output "$out_dir/provider-error.webp"
+pixlet render apps/nhllive/nhl_live.star '$provider_data={"league":"nhl","games":null,"upcomingGames":null,"nextGame":null,"stale":null}' --output "$out_dir/null-collections.webp"
+pixlet render apps/nhllive/nhl_live.star '$provider_data={"league":"nhl","games":[{"awayTeam":null,"homeTeam":{"abbreviation":null,"primaryColor":null,"logoData":null},"status":null,"awayScore":null,"homeScore":null,"scheduledAt":null,"statusDetail":null,"stale":null}],"upcomingGames":null,"nextGame":null,"stale":null}' --output "$out_dir/null-game-fields.webp"
 for output in "$out_dir"/*.webp; do test -s "$output"; done
 python3 .github/scripts/assert_webp_dimensions.py "$out_dir"/*.webp
 echo "NHL Live deterministic render fixtures passed: $out_dir"

@@ -16,6 +16,8 @@ pixlet render apps/cflscores/cfl_scores.star selectedTeam=85 scoreMode=auto _fix
 pixlet render apps/cflscores/cfl_scores.star selectedTeam=85 scoreMode=favorite _fixture_scenario=scheduled displayType=logos pregameDisplay=odds 'location={"timezone":"America/Vancouver"}' '$tz=America/Toronto' --output "$out_dir/legacy-config.webp"
 pixlet render apps/cflscores/cfl_scores.star '$provider_error={"code":"sports_provider_unavailable","message":"Sports data is temporarily unavailable"}' --output "$out_dir/provider-error.webp"
 pixlet render apps/cflscores/cfl_scores.star '$sports_data={"league":"cfl","provider":"espn-site","deviceTimezone":"America/Toronto","games":[],"freshAsOf":"2026-08-06T16:00:00Z","stale":false}' selectedTeam=all --output "$out_dir/server-contract.webp"
+pixlet render apps/cflscores/cfl_scores.star '$sports_data={"league":"cfl","games":null,"upcomingGames":null,"nextGame":null,"stale":null}' --output "$out_dir/null-collections.webp"
+pixlet render apps/cflscores/cfl_scores.star '$sports_data={"league":"cfl","games":[{"awayTeam":null,"homeTeam":{"abbreviation":null,"primaryColor":null,"logoData":null},"status":null,"awayScore":null,"homeScore":null,"awayRecord":null,"homeRecord":null,"scheduledAt":null,"statusDetail":null,"stale":null}],"upcomingGames":null,"nextGame":null,"stale":null}' --output "$out_dir/null-game-fields.webp"
 
 for output in "$out_dir"/*.webp; do test -s "$output"; done
 python3 .github/scripts/assert_webp_dimensions.py "$out_dir"/*.webp

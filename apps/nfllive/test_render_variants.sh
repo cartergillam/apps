@@ -17,6 +17,8 @@ pixlet render apps/nfllive/nfl_live.star _fixture_scenario=q3 team_color_backgro
 pixlet render apps/nfllive/nfl_live.star '$provider_error={"code":"sports_provider_unavailable","message":"Sports data is temporarily unavailable"}' --output "$out_dir/provider-error.webp"
 pixlet render apps/nfllive/nfl_live.star '$provider_error={"code":"sports_team_invalid","message":"NFL team selection is not available"}' --output "$out_dir/invalid-team.webp"
 pixlet render apps/nfllive/nfl_live.star '$sports_data={"league":"nfl","provider":"espn-site","deviceTimezone":"America/Toronto","games":[],"freshAsOf":"2026-09-10T16:00:00Z","stale":false}' mode=all_live --output "$out_dir/server-contract.webp"
+pixlet render apps/nfllive/nfl_live.star '$sports_data={"league":"nfl","games":null,"upcomingGames":null,"nextGame":null,"stale":null}' --output "$out_dir/null-collections.webp"
+pixlet render apps/nfllive/nfl_live.star '$sports_data={"league":"nfl","games":[{"awayTeam":null,"homeTeam":{"abbreviation":null,"primaryColor":null,"logoData":null},"status":null,"awayScore":null,"homeScore":null,"awayRecord":null,"homeRecord":null,"scheduledAt":null,"scheduledLocal":null,"statusDetail":null,"stale":null}],"upcomingGames":null,"nextGame":null,"stale":null}' --output "$out_dir/null-game-fields.webp"
 
 for output in "$out_dir"/*.webp; do test -s "$output"; done
 python3 .github/scripts/assert_webp_dimensions.py "$out_dir"/*.webp
