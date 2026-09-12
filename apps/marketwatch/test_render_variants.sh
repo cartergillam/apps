@@ -11,5 +11,9 @@ pixlet render apps/marketwatch/market_watch.star _fixture_scenario=multiple disp
 pixlet render apps/marketwatch/market_watch.star _fixture_scenario=invalid_symbol --output "$out_dir/invalid-symbol.webp"
 pixlet render apps/marketwatch/market_watch.star _fixture_scenario=rate_limited --output "$out_dir/rate-limited.webp"
 pixlet render apps/marketwatch/market_watch.star _fixture_scenario=setup --output "$out_dir/setup-required.webp"
+pixlet render apps/marketwatch/market_watch.star _fixture_scenario=invalid_key --output "$out_dir/invalid-key.webp"
+pixlet render apps/marketwatch/market_watch.star _fixture_scenario=plan_required --output "$out_dir/plan-required.webp"
+pixlet render apps/marketwatch/market_watch.star _fixture_scenario=provider_error --output "$out_dir/provider-error.webp"
 for output in "$out_dir"/*.webp; do test -s "$output"; done
+python3 .github/scripts/assert_webp_dimensions.py "$out_dir"/*.webp
 echo "Market Watch deterministic render fixtures passed: $out_dir"

@@ -3,7 +3,7 @@ set -eu
 
 out_dir="$(mktemp -d "${TMPDIR:-/tmp}/tronbyt-nfl-render-tests.XXXXXX")"
 
-for scenario in off_day future scheduled pregame q1 q2 halftime q3 q4 zero_clock quarter_break ot final final_ot tie delayed postponed cancelled suspended unknown stale timezone_boundary empty; do
+for scenario in off_day future scheduled pregame q1 q2 halftime q3 q4 zero_clock quarter_break ot final final_ot tie delayed postponed cancelled suspended unknown stale timezone_boundary empty worst_case; do
   pixlet render apps/nfllive/nfl_live.star \
     mode=favorite teamid=2 team_color_background_style=dim '$tz=America/Toronto' \
     _fixture_now=2026-09-10T16:00:00Z "_fixture_scenario=$scenario" \
@@ -19,5 +19,5 @@ pixlet render apps/nfllive/nfl_live.star '$provider_error={"code":"sports_team_i
 pixlet render apps/nfllive/nfl_live.star '$sports_data={"league":"nfl","provider":"espn-site","deviceTimezone":"America/Toronto","games":[],"freshAsOf":"2026-09-10T16:00:00Z","stale":false}' mode=all_live --output "$out_dir/server-contract.webp"
 
 for output in "$out_dir"/*.webp; do test -s "$output"; done
-
+python3 .github/scripts/assert_webp_dimensions.py "$out_dir"/*.webp
 echo "NFL Live deterministic render fixtures passed: $out_dir"

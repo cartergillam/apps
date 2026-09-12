@@ -16,7 +16,7 @@ def main(config):
     if raw == "":
         raw = config.get("$provider_data", "")
     if raw == "":
-        return status_frame(fixture_error(scenario) or provider_error(config, "SET UP KEY"), "#ff9f0a")
+        return status_frame(fixture_error(scenario) or provider_error(config, "SETUP REQUIRED"), "#ff9f0a")
     quotes = json.decode(raw)
     if len(quotes) == 0:
         return status_frame("NO QUOTES", "#ff9f0a")
@@ -40,8 +40,6 @@ def one_quote_page(quote, config):
     change = float(quote.get("absoluteChange", 0))
     color = "#30d158" if change >= 0 else "#ff453a"
     status = quote_status(quote)
-    currency = quote.get("currency", "")[:3]
-    status_label = status if currency == "" else status + " " + currency
     change_parts = []
     if config.bool("show_absolute_change"):
         change_parts.append(signed(change))
@@ -56,12 +54,12 @@ def one_quote_page(quote, config):
                 expanded = True,
                 main_align = "space_between",
                 children = [
-                    render.Text(content = quote.get("symbol", "?")[:9], color = "#ffffff", font = "tb-8"),
-                    render.Text(content = status_label[:10], color = status_color(quote), font = "CG-pixel-3x5-mono"),
+                    render.Text(content = display_symbol(quote.get("symbol", "?"))[:6], color = "#ffffff", font = "tb-8"),
+                    render.Text(content = status[:6], color = status_color(quote), font = "CG-pixel-3x5-mono"),
                 ],
             ),
             render.Text(content = price(quote.get("price", 0)), color = "#ffffff", font = "tom-thumb"),
-            render.Text(content = " ".join(change_parts) if len(change_parts) > 0 else "--", color = color, font = "CG-pixel-3x5-mono"),
+            render.Text(content = (" ".join(change_parts) if len(change_parts) > 0 else "--")[:15], color = color, font = "CG-pixel-3x5-mono"),
         ],
     )
 
@@ -73,9 +71,9 @@ def two_quote_page(quotes):
             expanded = True,
             main_align = "space_between",
             children = [
-                render.Text(content = quote_badge(quote) + quote.get("symbol", "?")[:6], color = status_color(quote), font = "CG-pixel-3x5-mono"),
-                render.Text(content = price(quote.get("price", 0)), color = "#ffffff", font = "CG-pixel-3x5-mono"),
-                render.Text(content = signed(change) + "%", color = "#30d158" if change >= 0 else "#ff453a", font = "CG-pixel-3x5-mono"),
+                render.Text(content = display_symbol(quote.get("symbol", "?"))[:4], color = status_color(quote), font = "CG-pixel-3x5-mono"),
+                render.Text(content = price(quote.get("price", 0))[:6], color = "#ffffff", font = "CG-pixel-3x5-mono"),
+                render.Text(content = (signed(change) + "%")[:6], color = "#30d158" if change >= 0 else "#ff453a", font = "CG-pixel-3x5-mono"),
             ],
         ))
     if len(rows) == 1:
@@ -89,7 +87,7 @@ def status_frame(message, color):
         cross_align = "center",
         children = [
             render.Text(content = "MARKET", color = "#ffffff", font = "tb-8"),
-            render.Text(content = message[:16], color = color, font = "CG-pixel-3x5-mono"),
+            render.Text(content = message[:14], color = color, font = "CG-pixel-3x5-mono"),
         ],
     ))
 
@@ -104,9 +102,20 @@ def provider_error(config, fallback):
         return "MAX 5 SYMBOLS"
     if code == "provider_rate_limited":
         return "RATE LIMITED"
-    if code == "provider_credential_missing":
-        return "SET UP KEY"
-    return "DATA UNAVAILABLE"
+    if code in ["provider_credential_missing", "provider_setup_required"]:
+        return "SETUP REQUIRED"
+    if code == "provider_credential_invalid":
+        return "INVALID KEY"
+    if code == "provider_entitlement_required":
+        return "PLAN REQUIRED"
+    if code == "provider_response_invalid":
+        return "BAD RESPONSE"
+    return "PROVIDER ERROR"
+
+def display_symbol(value):
+    # Exchange qualification remains in the provider request. The compact
+    # ticker is the readable identity on a 64-pixel physical display.
+    return value.split(":")[0]
 
 def price(value):
     value = float(value)
@@ -168,7 +177,10 @@ def fixture_error(scenario):
     return {
         "invalid_symbol": "BAD SYMBOL",
         "rate_limited": "RATE LIMITED",
-        "setup": "SET UP KEY",
+        "setup": "SETUP REQUIRED",
+        "invalid_key": "INVALID KEY",
+        "plan_required": "PLAN REQUIRED",
+        "provider_error": "PROVIDER ERROR",
     }.get(scenario, "")
 
 def get_schema():
@@ -176,7 +188,7 @@ def get_schema():
         version = "1",
         fields = [
             schema.Text(id = "credential_id", name = "Managed market credential", desc = "Logical server credential ID. The secret is never sent to this app.", icon = "gear", default = "market-primary"),
-            schema.Text(id = "symbols", name = "Symbols", desc = "One to five unique comma-separated symbols, such as AAPL or SHOP:TSX. Availability depends on your provider plan.", icon = "gear", default = "AAPL,SHOP:TSX"),
+            schema.Text(id = "symbols", name = "Symbols", desc = "One to five unique comma-separated symbols, such as AAPL or SHOP:TSX. Availability depends on your provider plan.", icon = "gear", default = "AAPL"),
             schema.Dropdown(id = "display_mode", name = "Display mode", desc = "Use readable pages rather than squeezing every symbol into one frame.", icon = "gear", default = "one", options = [
                 schema.Option(display = "One stock per frame", value = "one"),
                 schema.Option(display = "Two-stock split", value = "two"),
