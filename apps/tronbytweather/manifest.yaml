@@ -1,0 +1,15 @@
+---
+id: tronbyt-weather
+name: Tronbyt Weather
+summary: Weather at a glance
+desc: Current conditions, rain or snow soon, and a three-day forecast using the device location.
+author: Tronbyt
+fileName: tronbyt_weather.star
+packageName: tronbytweather
+recommendedInterval: 5
+category: weather
+tags:
+  - weather
+  - location
+published: '2026-09-13T00:00:00Z'
+updated: '2026-09-13T00:00:00Z'

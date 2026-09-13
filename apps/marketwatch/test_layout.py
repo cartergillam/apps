@@ -27,9 +27,6 @@ for prefix in ("", "ticker-"):
             for index in range(a.n_frames):
                 a.seek(index); b.seek(index)
                 same(a.convert("RGB"), b.convert("RGB"))
-# Focus and ticker start from the identical 64px card, including error cards.
-for scenario in ("layout_nasdaq", "layout_nyse", "layout_tsx", "layout_cad", "layout_long", "layout_missing", "layout_plan", "aapl", "msft", "dotted", "canadian_plan"):
-    same(frame(scenario), frame("ticker-" + scenario))
 # Only the intended fixed slot can change; other content must remain pixel-exact.
 same(base, frame("layout_cad"), (0, 0, 64, 25))
 same(base, frame("layout_cad"), (36, 25, 64, 32))
@@ -46,11 +43,13 @@ for scenario in ("layout_nasdaq", "layout_long", "layout_plan", "msft", "dotted"
     image = frame(scenario)
     assert image.crop((20, 0, 64, 8)).getbbox()[0] == 0, scenario
     assert image.crop((63, 0, 64, 32)).getbbox() is None, scenario
-# Mixed strip is composed of the same cards at exactly 96-frame boundaries.
+# Ticker uses variable measured widths; the five-pixel gap is verified by
+# test_animation.py. Compare mixed-card content before the next item enters.
+widths = json.loads((root / "ticker-layout_mixed.widths.json").read_text().split("] ", 1)[1])
 with Image.open(root / "ticker-layout_mixed.webp") as mixed:
     for index, scenario in enumerate(("layout_nasdaq", "msft", "canadian_plan")):
-        mixed.seek(index * 96)
-        same(mixed.convert("RGB"), frame(scenario))
+        mixed.seek(sum(widths[:index]))
+        same(mixed.convert("RGB"), frame("ticker-" + scenario), (0,0,widths[index]-5,32))
 # Synthetic normalized remote logos exercise wide/tall artwork and missing logos
 # without acquiring anything over the network. Text coordinates remain unchanged.
 quote = {"symbol": "AAPL", "price": 212.48, "absoluteChange": 2.15,

@@ -36,21 +36,22 @@ normal response credit headers, and retains local daily headroom for search,
 validation and retries. See server `internal/providers/MARKET_WATCH_QUOTA.md` for
 budget limits, market/session caveats and process-cache lifetime.
 
-Ticker timing is 55 ms per one-pixel step (formerly 40 ms). Every ticker card
-contains a rigid 64×32 quote composition plus a 32-pixel blank gap. Both Focus
-and Ticker use the same card: 20-pixel logo column, 44-pixel text column; ticker
-row Y=0–7, price Y=8–17, movement Y=18–24, currency/status Y=25–31. Text is
-start-aligned at X=20; currency uses X=20–35 and status X=36–63. The 18×18 logo
-canvas is fixed at (1,3), including remote artwork and fallback initials.
-Exchange/MIC labels and the colored venue bar are absent from all quote cards.
-Symbols fit ten compact characters, with a trailing `~` when truncated; dots
-are preserved. Long prices use the compact font within their existing slot.
-Errors such as PLAN REQUIRED occupy the price/movement slots as two short
-lines, never a wider card. Logos
-render without a background fill; acquisition failures use ticker letters.
-Ten-symbol ticker loops use a Sequence of bounded current/next-card strips to
-avoid older Pixlet Marquee width limits: 960 frames / 52.8 seconds. The server
-reserves at least 60 seconds of encoding duration for ticker loops.
+Ticker timing remains 55 ms per one-pixel step. Focus keeps its fixed 64×32
+composition. Ticker uses actual measured text widths: fixed 20px logo canvas,
+2px logo/text spacing, four aligned text rows (symbol/price/movement/currency),
+and a five-pixel allocated inter-item gap. Transparent logo/text edges yield
+physical visible gaps no larger than ten pixels in the fixtures. Short symbols
+are not padded to long-symbol width. Pathological symbols truncate to ten compact
+characters with `~`; PLAN REQUIRED displays compact PLAN in the same item.
+STALE/EOD/DELAY occupy the fixed space beneath the logo without changing item width.
+Venue/MIC labels remain absent. Approved logos and fallback initials retain their
+fixed canvas. The denser tape remains readable at 55ms; no timing change is needed.
+
+Bounded strips advance by each measured item width, with repeated following items
+to supply 64px of reference pixels, including a one-item loop narrower than the
+viewport. Every boundary, including last-to-first, uses the same gap. The ten-stock
+fixture now contains 540 frames / 29.7 seconds (formerly 960 / 52.8 seconds).
+Server quote/cache/quota logic and Focus layout are unchanged by density work.
 CLOSED text is omitted in both modes; a valid closing quote renders normally.
 Device credential assignments are automatic; owner-authorized legacy overrides
 remain supported.
@@ -58,4 +59,6 @@ remain supported.
 every adjacent/wraparound step, and identical OPEN/CLOSED/STALE quote geometry.
 `test_layout.py` compares metadata-only variants pixel-for-pixel, tests currency
 and error slot isolation, fixed logo/text anchors, mixed-strip card boundaries,
-synthetic wide/tall remote artwork and large-price clipping. All tests are offline.
+synthetic wide/tall remote artwork and large-price clipping. Animation tests
+reconstruct every strip, check measured widths and visible gaps <=10px, and verify
+each adjacent pixel step and loop boundary. All tests are offline.

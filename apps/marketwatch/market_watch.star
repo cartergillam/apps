@@ -12,7 +12,6 @@ STALE_QUOTE_FIXTURE = '''[{"symbol":"AAPL","displayName":"Apple Inc","price":212
 MULTI_QUOTE_FIXTURE = '''[{"symbol":"AAPL","displayName":"Apple Inc","price":212.48,"absoluteChange":2.15,"percentageChange":1.02,"exchange":"NASDAQ","mic":"XNAS","currency":"USD","marketStatus":"open","quoteTimestamp":"2026-08-06T15:45:00Z","providerUpdated":"2026-08-06T15:45:00Z","delayed":false,"stale":false},{"symbol":"SHOP:TSX","displayName":"Shopify","price":156.32,"absoluteChange":-1.84,"percentageChange":-1.16,"exchange":"Toronto Stock Exchange","mic":"XTSE","currency":"CAD","marketStatus":"closed","quoteTimestamp":"2026-08-06T15:44:00Z","providerUpdated":"2026-08-06T15:44:00Z","delayed":false,"stale":false},{"symbol":"MSFT","displayName":"Microsoft","price":481.02,"absoluteChange":-3.11,"percentageChange":-0.64,"exchange":"NASDAQ","mic":"XNAS","currency":"USD","marketStatus":"open","quoteTimestamp":"2026-08-06T15:45:00Z","providerUpdated":"2026-08-06T15:45:00Z","delayed":false,"stale":false}]'''
 
 FONT = "CG-pixel-3x5-mono"
-TICKER_WIDTH = 96
 TICKER_DELAY = 55
 
 def main(config):
@@ -62,25 +61,58 @@ def quote_card(quote, config):
     ]))
 
 def ticker(quotes, config):
-    # Each bounded strip contains the current and next card and advances
-    # exactly 96 one-pixel frames. Concatenating strips is pixel-continuous,
-    # including the final-to-first pair, without a long Marquee spatial cap.
+    # Bounded strips advance by their measured item width, including the same
+    # five-pixel gap at every boundary. Repeat following items until 64 pixels
+    # are available, even for a one-symbol loop narrower than the viewport.
+    measured = [ticker_item(q, config) for q in quotes]
+    items = [item[0] for item in measured]
+    widths = [item[1] for item in measured]
+    if config.get("_fixture_measure", "") == "true":
+        print(json.encode(widths))
     strips = []
-    for index in range(len(quotes)):
+    for index in range(len(items)):
+        children = [items[index]]
+        following_width = 0
+        for step in range(1, 5):
+            if following_width >= 64:
+                break
+            following = (index + step) % len(items)
+            children.append(items[following])
+            following_width += widths[following]
         strips.append(render.Marquee(
             width = 64,
             offset_start = 0,
-            offset_end = TICKER_WIDTH + 65,
-            child = render.Row(children = [ticker_card(quotes[index], config), ticker_card(quotes[(index + 1) % len(quotes)], config)]),
+            offset_end = following_width + 65,
+            child = render.Row(children = children),
         ))
     return render.Root(delay = TICKER_DELAY, show_full_animation = True, child = render.Sequence(children = strips))
 
-def ticker_card(quote, config):
-    # One deliberate 64px quote composition plus a fixed 32px inter-card gap.
-    return render.Box(width = TICKER_WIDTH, height = 32, child = render.Row(children = [
-        quote_card(quote, config),
-        render.Box(width = 32, height = 32),
-    ]))
+def ticker_item(quote, config):
+    error = quote.get("errorCode", "")
+    symbol = short(display_symbol(text(quote.get("symbol"), "?")), 10)
+    value = price(number(quote.get("price")))
+    compact_errors = {"provider_entitlement_required": "PLAN", "provider_credential_invalid": "KEY", "invalid_symbol": "BAD SYMBOL", "provider_rate_limited": "LIMITED", "provider_response_invalid": "BAD DATA"}
+    fields = [
+        render.Text(content = symbol, font = FONT, color = "#ffffff"),
+        render.Text(content = compact_errors.get(error, "ERROR") if error else short(value, 10), font = FONT if error or len(value) > 7 else "tb-8", color = "#ffb454" if error else "#ffffff"),
+        render.Text(content = "" if error else short(movement(quote, config), 10), font = FONT, color = movement_color(quote)),
+        render.Text(content = text(quote.get("currency"), "")[:3], font = FONT, color = "#9bb5c8"),
+    ]
+    width = max([field.size()[0] for field in fields])
+    heights = [8, 10, 7, 7]
+    rows = [render.Box(width = width, height = heights[i], child = render.Row(expanded = True, main_align = "start", children = [fields[i]])) for i in range(4)]
+    state = quote_status(quote)
+    visible_state = state if state in ["STALE", "EOD", "DELAY"] else ""
+    mark = render.Column(children = [
+        render.Box(width = 20, height = 24, child = company_mark(quote)),
+        render.Box(width = 20, height = 8, child = render.Text(content = visible_state, font = FONT, color = status_color(quote))),
+    ])
+    return (render.Box(width = 22 + width + 5, height = 32, child = render.Row(children = [
+        render.Box(width = 20, height = 32, child = mark),
+        render.Box(width = 2, height = 32),
+        render.Box(width = width, height = 32, child = render.Column(children = rows)),
+        render.Box(width = 5, height = 32),
+    ])), 22 + width + 5)
 
 def quote_error(code):
     return {
@@ -206,6 +238,28 @@ def status_color(quote):
     return "#8e8e93"
 
 def fixture_data(scenario):
+    if scenario in ["density_short", "density_two", "density_five", "density_ten"]:
+        apple = json.decode(fixture_data("aapl"))[0]
+        microsoft = json.decode(fixture_data("msft"))[0]
+        short_quote = dict(apple)
+        short_quote.update({"price": 9.25, "absoluteChange": 0.1, "percentageChange": 0.1})
+        if scenario == "density_short":
+            return json.encode([short_quote])
+        if scenario == "density_two":
+            return json.encode([apple, microsoft])
+        nvidia = dict(short_quote)
+        nvidia.update({"symbol": "NVDA", "price": 27.33, "logoData": ""})
+        shop = dict(short_quote)
+        shop.update({"symbol": "SHOP", "price": 119.2, "currency": "CAD", "logoData": ""})
+        five = [apple, microsoft, nvidia, shop, json.decode(fixture_data("canadian_plan"))[0]]
+        if scenario == "density_five":
+            return json.encode(five)
+        extra = []
+        for symbol in ["BRK.B", "GOOG", "AMZN", "RY", "META"]:
+            quote = dict(short_quote)
+            quote.update({"symbol": symbol, "logoData": ""})
+            extra.append(quote)
+        return json.encode(five + extra)
     if scenario in ["layout_nasdaq", "layout_nyse", "layout_tsx", "layout_cad", "layout_long", "layout_missing", "layout_plan", "layout_mixed"]:
         apple = json.decode(fixture_data("aapl"))[0]
         if scenario == "layout_nyse":

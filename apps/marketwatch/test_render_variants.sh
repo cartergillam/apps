@@ -2,11 +2,11 @@
 set -eu
 out_dir="${TRONBYT_RENDER_OUTPUT:-$(mktemp -d "${TMPDIR:-/tmp}/tronbyt-market-render-tests.XXXXXX")}"
 mkdir -p "$out_dir"
-for scenario in layout_nasdaq layout_nyse layout_tsx layout_cad layout_long layout_missing layout_plan layout_mixed ten dotted canadian_plan aapl aapl_closed aapl_stale msft five_open five_closed open closed tsx delayed eod stale multiple two five same_company logo_absent unchanged long mixed_plan invalid_symbol rate_limited setup invalid_key plan_required provider_error; do
+for scenario in density_short density_two density_five density_ten layout_nasdaq layout_nyse layout_tsx layout_cad layout_long layout_missing layout_plan layout_mixed ten dotted canadian_plan aapl aapl_closed aapl_stale msft five_open five_closed open closed tsx delayed eod stale multiple two five same_company logo_absent unchanged long mixed_plan invalid_symbol rate_limited setup invalid_key plan_required provider_error; do
   pixlet render apps/marketwatch/market_watch.star "_fixture_scenario=$scenario" display_mode=focus --max_duration 60000 --output "$out_dir/$scenario.webp"
 done
-for scenario in layout_nasdaq layout_nyse layout_tsx layout_cad layout_long layout_missing layout_plan layout_mixed ten dotted canadian_plan aapl aapl_closed aapl_stale msft two five five_open five_closed same_company long mixed_plan; do
-  pixlet render apps/marketwatch/market_watch.star "_fixture_scenario=$scenario" display_mode=ticker --max_duration 60000 --output "$out_dir/ticker-$scenario.webp"
+for scenario in density_short density_two density_five density_ten layout_nasdaq layout_nyse layout_tsx layout_cad layout_long layout_missing layout_plan layout_mixed ten dotted canadian_plan aapl aapl_closed aapl_stale msft two five five_open five_closed same_company long mixed_plan; do
+  pixlet render apps/marketwatch/market_watch.star "_fixture_scenario=$scenario" display_mode=ticker _fixture_measure=true --max_duration 60000 --output "$out_dir/ticker-$scenario.webp" > "$out_dir/ticker-$scenario.widths.json"
 done
 pixlet render apps/marketwatch/market_watch.star _fixture_scenario=multiple display_mode=two --output "$out_dir/legacy-two.webp"
 pixlet render apps/marketwatch/market_watch.star _fixture_scenario=aapl display_mode=one --output "$out_dir/legacy-one.webp"
