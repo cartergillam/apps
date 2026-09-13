@@ -1,0 +1,16 @@
+---
+id: nba-overview
+name: NBA Overview
+summary: Team season and games
+desc: Team record and standings, the next matchup and last result. Uses server-managed sports data and saved device timezone.
+author: Tronbyt
+fileName: nba_overview.star
+packageName: nbaoverview
+recommendedInterval: 5
+category: sports
+tags:
+  - nba
+  - sports
+  - overview
+published: '2026-09-13T00:00:00Z'
+updated: '2026-09-13T00:00:00Z'

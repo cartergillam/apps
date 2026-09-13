@@ -1,0 +1,174 @@
+"""NBA Overview: normalized server data, no provider or image HTTP."""
+
+load("encoding/base64.star", "base64")
+load("encoding/json.star", "json")
+load("render.star", "render")
+load("schema.star", "schema")
+
+FONT = "CG-pixel-3x5-mono"
+
+def main(config):
+    raw = config.get("$overview_data", "")
+    data = obj(json.decode(raw)) if raw else {}
+    team = obj(data.get("team"))
+    stale = data.get("stale") == True
+    pages = []
+    if team:
+        pages.append(team_page(team, obj(data.get("season")), obj(data.get("standing")), stale, config))
+    upcoming = obj(data.get("nextGame"))
+    previous = obj(data.get("lastGame"))
+    if useful_game(upcoming):
+        pages.append(next_page(upcoming, stale, config))
+    if useful_game(previous):
+        pages.append(last_page(previous, stale, config))
+    if not pages:
+        pages = [message("NBA OVERVIEW", "CHOOSE TEAM" if config.get("teamid", "13") == "" else "UNAVAILABLE")]
+    if len(pages) == 1:
+        return render.Root(child = pages[0])
+    return render.Root(delay = 5000, show_full_animation = True, child = render.Animation(children = pages))
+
+def team_page(team, season, standing, stale, config):
+    record = txt(obj(season.get("record")).get("display"))
+    phase = txt(season.get("phase"))
+    status = {"offseason": "OFFSEASON", "preseason": "PRESEASON", "playoffs": "PLAYOFFS"}.get(phase, "")
+    label = txt(standing.get("label"))
+    footer = "STALE" if stale else (label or status or "STANDINGS N/A")
+    subtitle = txt(season.get("label"))
+    return render.Box(width = 64, height = 32, child = render.Column(children = [
+        render.Row(children = [
+            render.Box(width = 24, height = 25, color = background(team, config), child = mark(team, 20)),
+            render.Box(width = 40, height = 25, child = render.Column(children = [
+                line(txt(team.get("abbreviation")) or "?", 40, 9, "tb-8"),
+                line(record or "NO RECORD", 40, 8),
+                line(subtitle, 40, 8, color = "#9db7ca"),
+            ])),
+        ]),
+        line(footer, 64, 7, color = "#ffcc55" if stale else "#b8d8e8"),
+    ]))
+
+def next_page(game, stale, config):
+    state = txt(game.get("status"))
+    date = txt(game.get("dateLabel")) or "DATE TBD"
+    clock = txt(game.get("timeLabel")) or "TBD"
+    if state in ["delayed", "postponed", "suspended"]:
+        clock = state.upper()
+    return render.Box(width = 64, height = 32, child = render.Column(children = [
+        render.Row(children = [
+            panel(obj(game.get("awayTeam")), config),
+            render.Box(width = 24, height = 25, child = render.Column(children = [line("NEXT", 24, 8, color = "#9db7ca"), line("@", 24, 17, "6x13")])),
+            panel(obj(game.get("homeTeam")), config),
+        ]),
+        line("STALE" if stale else (clock if state in ["delayed", "postponed", "suspended"] else ("TIME TBD" if date == "DATE TBD" else date + " " + clock)), 64, 7, color = "#ffcc55" if stale else "#b8d8e8"),
+    ]))
+
+def last_page(game, stale, config):
+    away = score(game.get("awayScore"))
+    home = score(game.get("homeScore"))
+    result = txt(game.get("result"))
+    label = txt(game.get("finalLabel")) or "FINAL"
+
+    # Logo + abbreviation + independent score columns avoid a squeezed 123-120.
+    return render.Box(width = 64, height = 32, child = render.Column(children = [
+        render.Row(children = [
+            result_side(obj(game.get("awayTeam")), away, config),
+            render.Box(width = 8, height = 25, child = line(result, 8, 25, color = "#64e39b" if result == "W" else "#ffc27a")),
+            result_side(obj(game.get("homeTeam")), home, config),
+        ]),
+        line("STALE " + label if stale else label, 64, 7, color = "#ffcc55" if stale else "#b8d8e8"),
+    ]))
+
+def result_side(team, value, config):
+    identity = line(txt(team.get("abbreviation")) or "?", 28, 14)
+    if txt(team.get("logoData")):
+        identity = render.Row(children = [render.Box(width = 14, height = 14, color = background(team, config), child = mark(team, 14)), line(txt(team.get("abbreviation")), 14, 14)])
+    return render.Box(width = 28, height = 25, child = render.Column(children = [
+        identity,
+        line(value, 28, 11, "tb-8"),
+    ]))
+
+def panel(team, config):
+    return render.Box(width = 20, height = 25, color = background(team, config), child = render.Column(children = [
+        render.Box(width = 20, height = 19, child = mark(team, 18)),
+        line(txt(team.get("abbreviation")) or "?", 20, 6),
+    ]))
+
+def line(value, width, height, font = FONT, color = "#ffffff"):
+    value = txt(value)
+    label = render.Text(content = value, font = font, color = color)
+    if label.size()[0] > width - 1:
+        font = FONT
+        value = value[:max(1, (width - 1) // 4)]
+        label = render.Text(content = value, font = font, color = color)
+    return render.Box(width = width, height = height, child = label)
+
+def mark(team, size):
+    logo = txt(team.get("logoData"))
+    if logo:
+        return render.Image(src = base64.decode(logo), width = size, height = size)
+    return line(txt(team.get("abbreviation")) or "?", size, size)
+
+def background(team, config):
+    color = txt(team.get("primaryColor"))
+    if len(color) != 7 or color[0] != "#" or any([color[i] not in "0123456789abcdefABCDEF" for i in range(1, len(color))]):
+        color = "#233444"
+    style = config.get("team_color_background_style", "dim")
+    return color if style == "full" else (color + "55" if style == "dim" else "#000000")
+
+def message(title, detail):
+    return render.Box(width = 64, height = 32, child = render.Column(children = [line(title, 64, 16), line(detail, 64, 16, color = "#ffcc55")]))
+
+def useful_game(game):
+    return bool(obj(game.get("awayTeam"))) and bool(obj(game.get("homeTeam")))
+
+def obj(value):
+    return value if type(value) == "dict" else {}
+
+def txt(value):
+    return value if type(value) == "string" else ""
+
+def score(value):
+    return str(int(value)) if type(value) in ["int", "float"] and value >= 0 and value <= 999 else "--"
+
+def get_schema():
+    return schema.Schema(version = "1", fields = [
+        schema.Dropdown(id = "teamid", name = "Favorite Team", desc = "Follow one team through its season, next game and last result.", icon = "star", default = "13", options = team_options()),
+        schema.Dropdown(id = "team_color_background_style", name = "Team Background", desc = "Color behind the team logos.", icon = "palette", default = "dim", options = [
+            schema.Option(display = "Off", value = "off"),
+            schema.Option(display = "Dim", value = "dim"),
+            schema.Option(display = "Full", value = "full"),
+        ]),
+    ])
+
+def team_options():
+    return [
+        schema.Option(display = "Atlanta Hawks", value = "1"),
+        schema.Option(display = "Boston Celtics", value = "2"),
+        schema.Option(display = "Brooklyn Nets", value = "17"),
+        schema.Option(display = "Charlotte Hornets", value = "30"),
+        schema.Option(display = "Chicago Bulls", value = "4"),
+        schema.Option(display = "Cleveland Cavaliers", value = "5"),
+        schema.Option(display = "Dallas Mavericks", value = "6"),
+        schema.Option(display = "Denver Nuggets", value = "7"),
+        schema.Option(display = "Detroit Pistons", value = "8"),
+        schema.Option(display = "Golden State Warriors", value = "9"),
+        schema.Option(display = "Houston Rockets", value = "10"),
+        schema.Option(display = "Indiana Pacers", value = "11"),
+        schema.Option(display = "LA Clippers", value = "12"),
+        schema.Option(display = "Los Angeles Lakers", value = "13"),
+        schema.Option(display = "Memphis Grizzlies", value = "29"),
+        schema.Option(display = "Miami Heat", value = "14"),
+        schema.Option(display = "Milwaukee Bucks", value = "15"),
+        schema.Option(display = "Minnesota Timberwolves", value = "16"),
+        schema.Option(display = "New Orleans Pelicans", value = "3"),
+        schema.Option(display = "New York Knicks", value = "18"),
+        schema.Option(display = "Oklahoma City Thunder", value = "25"),
+        schema.Option(display = "Orlando Magic", value = "19"),
+        schema.Option(display = "Philadelphia 76ers", value = "20"),
+        schema.Option(display = "Phoenix Suns", value = "21"),
+        schema.Option(display = "Portland Trail Blazers", value = "22"),
+        schema.Option(display = "Sacramento Kings", value = "23"),
+        schema.Option(display = "San Antonio Spurs", value = "24"),
+        schema.Option(display = "Toronto Raptors", value = "28"),
+        schema.Option(display = "Utah Jazz", value = "26"),
+        schema.Option(display = "Washington Wizards", value = "27"),
+    ]

@@ -1,0 +1,16 @@
+---
+id: nfl-overview
+name: NFL Overview
+summary: Team season and games
+desc: Team record and standings, the next matchup and last result. Uses server-managed sports data and saved device timezone.
+author: Tronbyt
+fileName: nfl_overview.star
+packageName: nfloverview
+recommendedInterval: 5
+category: sports
+tags:
+  - nfl
+  - sports
+  - overview
+published: '2026-09-13T00:00:00Z'
+updated: '2026-09-13T00:00:00Z'
