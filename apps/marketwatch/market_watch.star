@@ -1,7 +1,7 @@
 """Market Watch renders sanitized quote data injected by tronbyt-server."""
 
-load("encoding/json.star", "json")
 load("encoding/base64.star", "base64")
+load("encoding/json.star", "json")
 load("render.star", "render")
 load("schema.star", "schema")
 
@@ -13,7 +13,7 @@ MULTI_QUOTE_FIXTURE = '''[{"symbol":"AAPL","displayName":"Apple Inc","price":212
 
 FONT = "CG-pixel-3x5-mono"
 TICKER_WIDTH = 96
-TICKER_DELAY = 40
+TICKER_DELAY = 55
 
 def main(config):
     scenario = config.get("_fixture_scenario", "")
@@ -26,12 +26,19 @@ def main(config):
         return status_frame("NO QUOTES", "#ffb454")
     if config.get("display_mode", "focus") == "ticker":
         return ticker(quotes, config)
+
     # Legacy one/two mode values safely open in the detailed Focus design.
     return render.Root(delay = int(config.get("symbol_duration", "5")) * 1000, show_full_animation = True, child = render.Animation(children = [focus(q, config) for q in quotes]))
 
 def focus(quote, config):
     error = quote.get("errorCode", "")
     symbol = display_symbol(text(quote.get("symbol"), "?"))
+    if error:
+        return render.Column(children = [
+            render.Box(width = 64, height = 8, child = render.Text(content = short(symbol, 15), font = FONT, color = "#ffffff")),
+            render.Box(width = 64, height = 17, child = render.Text(content = quote_error(error), font = FONT, color = "#ffb454")),
+            render.Box(width = 64, height = 7, color = "#0c1925", child = render.Text(content = listing_label(quote)[:16], font = FONT, color = "#9bb5c8")),
+        ])
     return render.Column(children = [
         render.Row(children = [
             render.Box(width = 38, height = 7, child = render.Text(content = short(symbol, 9), font = FONT, color = "#ffffff")),
@@ -48,7 +55,7 @@ def focus(quote, config):
     ])
 
 def ticker(quotes, config):
-    # One pixel every 40 ms. A duplicate first card supplies the wraparound
+    # One pixel every 55 ms. A duplicate first card supplies the wraparound
     # pixels; offsets stop exactly one cycle later, before any blank/reset.
     cards = [ticker_card(q, config) for q in quotes]
     cards.append(ticker_card(quotes[0], config))
@@ -61,24 +68,36 @@ def ticker(quotes, config):
 
 def ticker_card(quote, config):
     error = quote.get("errorCode", "")
-    return render.Row(children = [
+
+    # Fixed 32px card and permanent 7px status region for every market state.
+    return render.Box(width = TICKER_WIDTH, height = 32, child = render.Row(cross_align = "start", children = [
         render.Box(width = 20, height = 32, child = render.Column(children = [
             render.Box(width = 20, height = 24, child = company_mark(quote)),
             render.Box(width = 20, height = 8, child = render.Text(content = text(quote.get("currency"), "---")[:3], font = FONT, color = "#9bb5c8")),
         ])),
-        render.Column(children = [
+        render.Box(width = 68, height = 32, child = render.Column(children = [
             render.Box(width = 68, height = 8, child = render.Text(content = short(display_symbol(text(quote.get("symbol"), "?")), 15), font = FONT, color = "#ffffff")),
-            render.Box(width = 68, height = 10, child = render.Text(content = "PLAN REQUIRED" if error == "provider_entitlement_required" else ("CHECK LISTING" if error else price(number(quote.get("price")))), font = FONT if error else "tb-8", color = "#ffb454" if error else "#ffffff")),
+            render.Box(width = 68, height = 10, child = render.Text(content = quote_error(error) if error else price(number(quote.get("price"))), font = FONT if error else "tb-8", color = "#ffb454" if error else "#ffffff")),
             render.Box(width = 68, height = 7, child = render.Text(content = "" if error else movement(quote, config), font = FONT, color = movement_color(quote))),
             render.Box(width = 68, height = 7, color = "#0c1925", child = render.Text(content = (venue(quote) + " " + quote_status(quote))[:16], font = FONT, color = status_color(quote))),
-        ]),
+        ])),
         render.Box(width = 8, height = 32),
-    ])
+    ]))
+
+def quote_error(code):
+    return {
+        "provider_credential_invalid": "INVALID KEY",
+        "provider_entitlement_required": "PLAN REQUIRED",
+        "invalid_symbol": "BAD SYMBOL",
+        "listing_mismatch": "CHECK LISTING",
+        "provider_rate_limited": "RATE LIMITED",
+        "provider_response_invalid": "BAD RESPONSE",
+    }.get(code, "PROVIDER ERROR")
 
 def company_mark(quote):
     logo = text(quote.get("logoData"), "")
     if logo != "":
-        return render.Box(width = 18, height = 18, color = "#e5e9ee", child = render.Image(src = base64.decode(logo), width = 18, height = 18))
+        return render.Box(width = 18, height = 18, child = render.Image(src = base64.decode(logo), width = 18, height = 18))
     return render.Box(width = 18, height = 18, color = "#15324a", child = render.Text(content = display_symbol(text(quote.get("symbol"), "?"))[:3], font = FONT, color = "#b5dfff"))
 
 def movement(quote, config):
@@ -197,12 +216,20 @@ def status_color(quote):
     return "#8e8e93"
 
 def fixture_data(scenario):
-    if scenario in ["aapl", "five", "two", "unchanged", "long", "same_company", "logo_absent", "mixed_plan"]:
+    if scenario in ["aapl", "five", "two", "unchanged", "long", "same_company", "logo_absent", "mixed_plan", "aapl_closed", "aapl_stale", "msft", "five_open", "five_closed"]:
         apple = json.decode(OPEN_QUOTE_FIXTURE)[0]
-        apple["logoData"] = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAABnUlEQVR4nJTTz6sBURQH8PPGpaFZ2snKAk1sWCgLJUpZqalZUOQvsPQ3UErKf2BlYaXZ2FhIykrZWFnYKErzg4tyX94P5s7oue/s7sz305w7ncMRhlosFs1m83A4WJ7DW9lqtVwul9fr/Tfu9/vwVdVq1f72L3y73WKxGAAEg8HtdmsPcGArVVUxxgBwOp0IIaVSaTgc8jyv67ol+XH/+m8pitJut5fLpdvtTqVSkiQRQiaTiaIo6/VaEIRkMlmv1yORyA949NBoNOxdcJy1NZ7nZ7MZdefxeGyXL6tQKOz3ewpLksQiQ6GQYRjUDzMMYz6fs2BZlj0ez/NSAKDruqZpLNjv95uPd4wQcjgcLHiz2VBnQsjlchFFkQWLoogxtk5YuVxmwQBQqVTO5zOFB4MBIwaAbDZ7vV6f45nL5cLhMCP2+XwIITBPWK/XY5GCIKxWqxdbVSwW3+JOp/N6JTVNy2Qy3yGEUDQaTafTgUDgIWu1mjlPbRUAHI/Hbre72+3y+XwikXA6naqqjkaj6XQaj8dlWTaHPwMAAP//yEnZbRT/mzYAAAAASUVORK5CYII="
+        apple["logoData"] = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABFElEQVR4nKyTPS8EURSG34NW4yNEo1QpViIqFBJBKdH4CUrxD9R+gUQiau1G66PQiKg0tpAlIlH5aBQeudltdnfuvXMy85Qz9z7nPefMDKlmXEJgBXgCDipXBhaBLzps1iG86MqugOGqslHgGWgCY6mzFhHMSdqVNCPpVlJT0rikWUnrkiYl3Uk6NbOPXJod4Ide3oBHBmkBjZRsHvgsuBjjHVhKCU8cssBWrt2WQ/YADOyg/8OeSFbs5cXMyAl/HcLpoof9wrZD2ACWc8IbhzDM7xhYiJ4AVoE/56bb0YRmdinp2pEycJ58C6w50oX/eypbEjgqKdwu1QMwApx1L90De8AGcAi8At/AfumhVOE/AAD//0hOz+c8BA+LAAAAAElFTkSuQmCC"
         cad = json.decode(CLOSED_QUOTE_FIXTURE)[0]
         usd = dict(cad)
         usd.update({"symbol": "SHOP", "mic": "XNYS", "exchange": "NYSE", "currency": "USD", "price": 119.22})
+        if scenario in ["aapl_closed", "aapl_stale"]:
+            apple["marketStatus"] = "closed"
+            apple["stale"] = scenario == "aapl_stale"
+            return json.encode([apple])
+        if scenario == "msft":
+            apple["symbol"] = "MSFT"
+            apple["logoData"] = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAA0klEQVR4nGJioDJgARGfApT+o0swQvG/nz8t+bY/PQESq97GYMHKynAcrBhDBwNDoxsDI9VdOAINBEcKIxYJbGIMrBAJxv8MDP+xKsBjIFgcpwTEUJwGgpIGDq0MPx4+vQJjv3/PcEVQkAGi9jcuHVQGtIkUhiVvLXCq+Pj3CkO22BcQ8/8qBh4GHgYdXEoZvRhOQAxkZDmOKQsl+MFhBs56YMNYGSBqsUcKI8RAbLL/8UQlDmEGuJf/Y1HByIA9sf3Hb+jgz3qD30CqA0AAAAD//8r2MOGLRuDeAAAAAElFTkSuQmCC"
+            return json.encode([apple])
         if scenario == "aapl":
             return json.encode([apple])
         if scenario == "two":
@@ -224,7 +251,11 @@ def fixture_data(scenario):
         nvidia.update({"symbol": "NVDA", "logoData": "", "price": 184.52, "absoluteChange": -1.12, "percentageChange": -0.6})
         eod = json.decode(DELAYED_QUOTE_FIXTURE)[0]
         eod["eod"] = True
-        return json.encode([apple, nvidia, cad, usd, eod])
+        five = [apple, nvidia, cad, usd, eod]
+        if scenario in ["five_open", "five_closed"]:
+            for quote in five:
+                quote.update({"marketStatus": "open" if scenario == "five_open" else "closed", "eod": False, "delayed": False})
+        return json.encode(five)
     return {
         "open": OPEN_QUOTE_FIXTURE,
         "closed": CLOSED_QUOTE_FIXTURE,
