@@ -21,7 +21,7 @@ def main(config):
     if raw == "":
         return status_frame(fixture_error(scenario) or provider_error(config, "SETUP REQUIRED"), "#ffb454")
     decoded = json.decode(raw)
-    quotes = [q for q in decoded if type(q) == "dict"][:5] if type(decoded) == "list" else []
+    quotes = [q for q in decoded if type(q) == "dict"][:10] if type(decoded) == "list" else []
     if len(quotes) == 0:
         return status_frame("NO QUOTES", "#ffb454")
     if config.get("display_mode", "focus") == "ticker":
@@ -42,7 +42,7 @@ def focus(quote, config):
     return render.Column(children = [
         render.Row(children = [
             render.Box(width = 38, height = 7, child = render.Text(content = short(symbol, 9), font = FONT, color = "#ffffff")),
-            render.Box(width = 26, height = 7, child = render.Text(content = "PLAN" if error == "provider_entitlement_required" else quote_status(quote), font = FONT, color = status_color(quote))),
+            render.Box(width = 26, height = 7, child = render.Text(content = quote_status(quote), font = FONT, color = status_color(quote))),
         ]),
         render.Row(children = [
             render.Box(width = 20, height = 18, child = company_mark(quote)),
@@ -55,16 +55,18 @@ def focus(quote, config):
     ])
 
 def ticker(quotes, config):
-    # One pixel every 55 ms. A duplicate first card supplies the wraparound
-    # pixels; offsets stop exactly one cycle later, before any blank/reset.
-    cards = [ticker_card(q, config) for q in quotes]
-    cards.append(ticker_card(quotes[0], config))
-    return render.Root(delay = TICKER_DELAY, show_full_animation = True, child = render.Marquee(
-        width = 64,
-        offset_start = 0,
-        offset_end = TICKER_WIDTH + 65,
-        child = render.Row(children = cards),
-    ))
+    # Each bounded strip contains the current and next card and advances
+    # exactly 96 one-pixel frames. Concatenating strips is pixel-continuous,
+    # including the final-to-first pair, without a long Marquee spatial cap.
+    strips = []
+    for index in range(len(quotes)):
+        strips.append(render.Marquee(
+            width = 64,
+            offset_start = 0,
+            offset_end = TICKER_WIDTH + 65,
+            child = render.Row(children = [ticker_card(quotes[index], config), ticker_card(quotes[(index + 1) % len(quotes)], config)]),
+        ))
+    return render.Root(delay = TICKER_DELAY, show_full_animation = True, child = render.Sequence(children = strips))
 
 def ticker_card(quote, config):
     error = quote.get("errorCode", "")
@@ -146,7 +148,7 @@ def provider_error(config, fallback):
     if code == "invalid_symbol":
         return "BAD SYMBOL"
     if code == "market_symbol_limit":
-        return "MAX 5 SYMBOLS"
+        return "MAX 10 SYMBOLS"
     if code == "provider_rate_limited":
         return "RATE LIMITED"
     if code in ["provider_credential_missing", "provider_setup_required"]:
@@ -187,8 +189,8 @@ def decimal2(value):
 def market_status(value):
     return {
         "open": "OPEN",
-        "closed": "CLOSED",
-    }.get(value, "QUOTE")
+        "closed": "",
+    }.get(value, "")
 
 def quote_status(quote):
     if quote.get("stale", False):
@@ -202,7 +204,6 @@ def quote_status(quote):
 def quote_badge(quote):
     return {
         "OPEN": "O ",
-        "CLOSED": "C ",
         "EOD": "E ",
         "STALE": "S ",
     }.get(quote_status(quote), "? ")
@@ -216,12 +217,17 @@ def status_color(quote):
     return "#8e8e93"
 
 def fixture_data(scenario):
-    if scenario in ["aapl", "five", "two", "unchanged", "long", "same_company", "logo_absent", "mixed_plan", "aapl_closed", "aapl_stale", "msft", "five_open", "five_closed"]:
+    if scenario in ["aapl", "five", "two", "unchanged", "long", "same_company", "logo_absent", "mixed_plan", "aapl_closed", "aapl_stale", "msft", "five_open", "five_closed", "ten", "dotted", "canadian_plan"]:
         apple = json.decode(OPEN_QUOTE_FIXTURE)[0]
         apple["logoData"] = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABFElEQVR4nKyTPS8EURSG34NW4yNEo1QpViIqFBJBKdH4CUrxD9R+gUQiau1G66PQiKg0tpAlIlH5aBQeudltdnfuvXMy85Qz9z7nPefMDKlmXEJgBXgCDipXBhaBLzps1iG86MqugOGqslHgGWgCY6mzFhHMSdqVNCPpVlJT0rikWUnrkiYl3Uk6NbOPXJod4Ide3oBHBmkBjZRsHvgsuBjjHVhKCU8cssBWrt2WQ/YADOyg/8OeSFbs5cXMyAl/HcLpoof9wrZD2ACWc8IbhzDM7xhYiJ4AVoE/56bb0YRmdinp2pEycJ58C6w50oX/eypbEjgqKdwu1QMwApx1L90De8AGcAi8At/AfumhVOE/AAD//0hOz+c8BA+LAAAAAElFTkSuQmCC"
         cad = json.decode(CLOSED_QUOTE_FIXTURE)[0]
         usd = dict(cad)
         usd.update({"symbol": "SHOP", "mic": "XNYS", "exchange": "NYSE", "currency": "USD", "price": 119.22})
+        if scenario in ["dotted", "canadian_plan"]:
+            apple.update({"symbol": "PLZ.UN", "mic": "XTSE", "exchange": "TSX", "currency": "CAD", "logoData": ""})
+            if scenario == "canadian_plan":
+                apple["errorCode"] = "provider_entitlement_required"
+            return json.encode([apple])
         if scenario in ["aapl_closed", "aapl_stale"]:
             apple["marketStatus"] = "closed"
             apple["stale"] = scenario == "aapl_stale"
@@ -252,9 +258,16 @@ def fixture_data(scenario):
         eod = json.decode(DELAYED_QUOTE_FIXTURE)[0]
         eod["eod"] = True
         five = [apple, nvidia, cad, usd, eod]
-        if scenario in ["five_open", "five_closed"]:
+        if scenario in ["five_open", "five_closed", "ten", "dotted", "canadian_plan"]:
             for quote in five:
                 quote.update({"marketStatus": "open" if scenario == "five_open" else "closed", "eod": False, "delayed": False})
+        if scenario == "ten":
+            extra = []
+            for symbol in ["MSFT", "AMZN", "GOOG", "META", "PLZ.UN"]:
+                quote = dict(apple)
+                quote.update({"symbol": symbol, "logoData": ""})
+                extra.append(quote)
+            return json.encode(five + extra)
         return json.encode(five)
     return {
         "open": OPEN_QUOTE_FIXTURE,
@@ -280,9 +293,9 @@ def get_schema():
     return schema.Schema(
         version = "1",
         fields = [
-            schema.Text(id = "credential_id", name = "Managed market credential", desc = "Logical server credential ID. The secret is never sent to this app.", icon = "gear", default = "market-primary"),
+            schema.Text(id = "credential_id", name = "Market credential override", desc = "Normally uses the device assignment. Owners may select a logical override; secrets remain on the server.", icon = "gear", default = ""),
             schema.Text(id = "watchlist", name = "Watchlist listings", desc = "Managed by the mobile stock picker. Leave empty to use legacy symbols.", icon = "star", default = ""),
-            schema.Text(id = "symbols", name = "Symbols", desc = "One to five unique comma-separated symbols, such as AAPL or SHOP:TSX. Availability depends on your provider plan.", icon = "gear", default = "AAPL"),
+            schema.Text(id = "symbols", name = "Symbols", desc = "One to ten unique comma-separated symbols, such as AAPL or SHOP:TSX. Availability depends on your provider plan.", icon = "gear", default = "AAPL"),
             schema.Dropdown(id = "display_mode", name = "Display mode", desc = "Focus on one stock or scroll the whole watchlist continuously.", icon = "gear", default = "focus", options = [
                 schema.Option(display = "Focus", value = "focus"),
                 schema.Option(display = "Ticker", value = "ticker"),

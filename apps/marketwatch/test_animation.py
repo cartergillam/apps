@@ -5,7 +5,7 @@ import sys
 from PIL import Image, ImageChops
 
 root = Path(sys.argv[1])
-counts = {"aapl": 1, "two": 2, "five": 5, "same_company": 2, "long": 1, "mixed_plan": 2, "aapl_closed": 1, "aapl_stale": 1, "msft": 1, "five_open": 5, "five_closed": 5}
+counts = {"ten": 10, "dotted": 1, "canadian_plan": 1, "aapl": 1, "two": 2, "five": 5, "same_company": 2, "long": 1, "mixed_plan": 2, "aapl_closed": 1, "aapl_stale": 1, "msft": 1, "five_open": 5, "five_closed": 5}
 for scenario, count in counts.items():
     path = root / f"ticker-{scenario}.webp"
     with Image.open(path) as image:
@@ -40,3 +40,8 @@ for baseline, variant in [("aapl", "aapl_closed"), ("aapl", "aapl_stale"), ("fiv
             if i % 96 == 0:
                 assert ImageChops.difference(a.convert("RGB").crop((0, 25, 20, 32)), b.convert("RGB").crop((0, 25, 20, 32))).getbbox() is None
 print("OPEN/CLOSED/STALE ticker quote geometry is identical")
+
+# CLOSED is absent from all normal display paths, while STALE is retained.
+source = Path("apps/marketwatch/market_watch.star").read_text()
+assert '"closed": ""' in source
+assert '"closed": "CLOSED"' not in source
