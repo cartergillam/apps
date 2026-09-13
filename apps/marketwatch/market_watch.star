@@ -31,28 +31,35 @@ def main(config):
     return render.Root(delay = int(config.get("symbol_duration", "5")) * 1000, show_full_animation = True, child = render.Animation(children = [focus(q, config) for q in quotes]))
 
 def focus(quote, config):
+    return quote_card(quote, config)
+
+def card_text(value, width, height, color, font = FONT):
+    # Box centers its child. An expanded start-aligned Row pins the text X.
+    return render.Box(width = width, height = height, child = render.Row(
+        expanded = True,
+        main_align = "start",
+        children = [render.Text(content = value, font = font, color = color)],
+    ))
+
+def quote_card(quote, config):
     error = quote.get("errorCode", "")
-    symbol = display_symbol(text(quote.get("symbol"), "?"))
-    if error:
-        return render.Column(children = [
-            render.Box(width = 64, height = 8, child = render.Text(content = short(symbol, 15), font = FONT, color = "#ffffff")),
-            render.Box(width = 64, height = 17, child = render.Text(content = quote_error(error), font = FONT, color = "#ffb454")),
-            render.Box(width = 64, height = 7, color = "#0c1925", child = render.Text(content = listing_label(quote)[:16], font = FONT, color = "#9bb5c8")),
-        ])
-    return render.Column(children = [
-        render.Row(children = [
-            render.Box(width = 38, height = 7, child = render.Text(content = short(symbol, 9), font = FONT, color = "#ffffff")),
-            render.Box(width = 26, height = 7, child = render.Text(content = quote_status(quote), font = FONT, color = status_color(quote))),
-        ]),
-        render.Row(children = [
-            render.Box(width = 20, height = 18, child = company_mark(quote)),
-            render.Box(width = 44, height = 18, child = render.Column(children = [
-                render.Box(width = 44, height = 11, child = render.Text(content = "UNAVAILABLE" if error else price(number(quote.get("price"))), font = FONT if error else "tb-8", color = "#ffffff")),
-                render.Box(width = 44, height = 7, child = render.Text(content = "PLAN REQD" if error == "provider_entitlement_required" else ("CHECK LIST" if error else movement(quote, config)), font = FONT, color = "#ffb454" if error else movement_color(quote))),
-            ])),
-        ]),
-        render.Box(width = 64, height = 7, color = "#0c1925", child = render.Text(content = listing_label(quote)[:16], font = FONT, color = "#9bb5c8")),
-    ])
+    error_words = quote_error(error).split(" ") if error else []
+    value = price(number(quote.get("price")))
+    return render.Box(width = 64, height = 32, child = render.Row(main_align = "start", children = [
+        render.Box(width = 20, height = 32, child = render.Column(children = [
+            render.Box(width = 20, height = 24, child = company_mark(quote)),
+            render.Box(width = 20, height = 8),
+        ])),
+        render.Box(width = 44, height = 32, child = render.Column(children = [
+            card_text(short(display_symbol(text(quote.get("symbol"), "?")), 10), 44, 8, "#ffffff"),
+            card_text(short(error_words[0], 10) if error else short(value, 10), 44, 10, "#ffb454" if error else "#ffffff", FONT if error or len(value) > 7 else "tb-8"),
+            card_text(short(" ".join(error_words[1:]), 10) if error else short(movement(quote, config), 10), 44, 7, "#ffb454" if error else movement_color(quote)),
+            render.Row(children = [
+                card_text(text(quote.get("currency"), "")[:3], 16, 7, "#9bb5c8"),
+                card_text("" if error else quote_status(quote), 28, 7, status_color(quote)),
+            ]),
+        ])),
+    ]))
 
 def ticker(quotes, config):
     # Each bounded strip contains the current and next card and advances
@@ -69,21 +76,10 @@ def ticker(quotes, config):
     return render.Root(delay = TICKER_DELAY, show_full_animation = True, child = render.Sequence(children = strips))
 
 def ticker_card(quote, config):
-    error = quote.get("errorCode", "")
-
-    # Fixed 32px card and permanent 7px status region for every market state.
-    return render.Box(width = TICKER_WIDTH, height = 32, child = render.Row(cross_align = "start", children = [
-        render.Box(width = 20, height = 32, child = render.Column(children = [
-            render.Box(width = 20, height = 24, child = company_mark(quote)),
-            render.Box(width = 20, height = 8, child = render.Text(content = text(quote.get("currency"), "---")[:3], font = FONT, color = "#9bb5c8")),
-        ])),
-        render.Box(width = 68, height = 32, child = render.Column(children = [
-            render.Box(width = 68, height = 8, child = render.Text(content = short(display_symbol(text(quote.get("symbol"), "?")), 15), font = FONT, color = "#ffffff")),
-            render.Box(width = 68, height = 10, child = render.Text(content = quote_error(error) if error else price(number(quote.get("price"))), font = FONT if error else "tb-8", color = "#ffb454" if error else "#ffffff")),
-            render.Box(width = 68, height = 7, child = render.Text(content = "" if error else movement(quote, config), font = FONT, color = movement_color(quote))),
-            render.Box(width = 68, height = 7, color = "#0c1925", child = render.Text(content = (venue(quote) + " " + quote_status(quote))[:16], font = FONT, color = status_color(quote))),
-        ])),
-        render.Box(width = 8, height = 32),
+    # One deliberate 64px quote composition plus a fixed 32px inter-card gap.
+    return render.Box(width = TICKER_WIDTH, height = 32, child = render.Row(children = [
+        quote_card(quote, config),
+        render.Box(width = 32, height = 32),
     ]))
 
 def quote_error(code):
@@ -112,13 +108,6 @@ def movement(quote, config):
 def movement_color(quote):
     value = number(quote.get("absoluteChange"))
     return "#4be6a0" if value > 0 else ("#ff657a" if value < 0 else "#aab8c5")
-
-def venue(quote):
-    mic = text(quote.get("mic"), "")
-    return {"XTSE": "TSX", "XNAS": "NASDAQ", "XNYS": "NYSE", "ARCX": "ARCA"}.get(mic, short(text(quote.get("exchange"), mic or "AUTO"), 8))
-
-def listing_label(quote):
-    return text(quote.get("currency"), "---") + " " + venue(quote)
 
 def short(value, length):
     return value if len(value) <= length else value[:length - 1] + "~"
@@ -217,6 +206,23 @@ def status_color(quote):
     return "#8e8e93"
 
 def fixture_data(scenario):
+    if scenario in ["layout_nasdaq", "layout_nyse", "layout_tsx", "layout_cad", "layout_long", "layout_missing", "layout_plan", "layout_mixed"]:
+        apple = json.decode(fixture_data("aapl"))[0]
+        if scenario == "layout_nyse":
+            apple.update({"exchange": "NYSE", "mic": "XNYS"})
+        if scenario == "layout_tsx":
+            apple.update({"exchange": "Toronto Stock Exchange", "mic": "XTSE"})
+        if scenario == "layout_cad":
+            apple["currency"] = "CAD"
+        if scenario == "layout_long":
+            apple["symbol"] = "BRK.B"
+        if scenario == "layout_missing":
+            apple["logoData"] = ""
+        if scenario == "layout_plan":
+            apple.update({"symbol": "PLZ.UN", "exchange": "TSX", "mic": "XTSE", "currency": "CAD", "errorCode": "provider_entitlement_required"})
+        if scenario == "layout_mixed":
+            return json.encode([apple, json.decode(fixture_data("msft"))[0], json.decode(fixture_data("canadian_plan"))[0]])
+        return json.encode([apple])
     if scenario in ["aapl", "five", "two", "unchanged", "long", "same_company", "logo_absent", "mixed_plan", "aapl_closed", "aapl_stale", "msft", "five_open", "five_closed", "ten", "dotted", "canadian_plan"]:
         apple = json.decode(OPEN_QUOTE_FIXTURE)[0]
         apple["logoData"] = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABFElEQVR4nKyTPS8EURSG34NW4yNEo1QpViIqFBJBKdH4CUrxD9R+gUQiau1G66PQiKg0tpAlIlH5aBQeudltdnfuvXMy85Qz9z7nPefMDKlmXEJgBXgCDipXBhaBLzps1iG86MqugOGqslHgGWgCY6mzFhHMSdqVNCPpVlJT0rikWUnrkiYl3Uk6NbOPXJod4Ide3oBHBmkBjZRsHvgsuBjjHVhKCU8cssBWrt2WQ/YADOyg/8OeSFbs5cXMyAl/HcLpoof9wrZD2ACWc8IbhzDM7xhYiJ4AVoE/56bb0YRmdinp2pEycJ58C6w50oX/eypbEjgqKdwu1QMwApx1L90De8AGcAi8At/AfumhVOE/AAD//0hOz+c8BA+LAAAAAElFTkSuQmCC"

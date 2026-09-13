@@ -37,7 +37,16 @@ validation and retries. See server `internal/providers/MARKET_WATCH_QUOTA.md` fo
 budget limits, market/session caveats and process-cache lifetime.
 
 Ticker timing is 55 ms per one-pixel step (formerly 40 ms). Every ticker card
-has fixed 32-pixel geometry and a permanent seven-pixel status region. Logos
+contains a rigid 64×32 quote composition plus a 32-pixel blank gap. Both Focus
+and Ticker use the same card: 20-pixel logo column, 44-pixel text column; ticker
+row Y=0–7, price Y=8–17, movement Y=18–24, currency/status Y=25–31. Text is
+start-aligned at X=20; currency uses X=20–35 and status X=36–63. The 18×18 logo
+canvas is fixed at (1,3), including remote artwork and fallback initials.
+Exchange/MIC labels and the colored venue bar are absent from all quote cards.
+Symbols fit ten compact characters, with a trailing `~` when truncated; dots
+are preserved. Long prices use the compact font within their existing slot.
+Errors such as PLAN REQUIRED occupy the price/movement slots as two short
+lines, never a wider card. Logos
 render without a background fill; acquisition failures use ticker letters.
 Ten-symbol ticker loops use a Sequence of bounded current/next-card strips to
 avoid older Pixlet Marquee width limits: 960 frames / 52.8 seconds. The server
@@ -47,3 +56,6 @@ Device credential assignments are automatic; owner-authorized legacy overrides
 remain supported.
 `test_render_variants.sh` validates 64×32 fixtures, 1/2/5/10-symbol animation timing,
 every adjacent/wraparound step, and identical OPEN/CLOSED/STALE quote geometry.
+`test_layout.py` compares metadata-only variants pixel-for-pixel, tests currency
+and error slot isolation, fixed logo/text anchors, mixed-strip card boundaries,
+synthetic wide/tall remote artwork and large-price clipping. All tests are offline.
