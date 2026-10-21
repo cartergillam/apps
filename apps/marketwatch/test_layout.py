@@ -27,8 +27,9 @@ for prefix in ("", "ticker-"):
             for index in range(a.n_frames):
                 a.seek(index); b.seek(index)
                 same(a.convert("RGB"), b.convert("RGB"))
-# Only the intended fixed slot can change; other content must remain pixel-exact.
-same(base, frame("layout_cad"), (0, 0, 64, 25))
+# Currency changes the CAD price prefix and currency row only; anchors remain fixed.
+same(base, frame("layout_cad"), (0, 0, 64, 8))
+same(base, frame("layout_cad"), (20, 18, 64, 25))
 same(base, frame("layout_cad"), (36, 25, 64, 32))
 same(base, frame("layout_long"), (0, 0, 20, 32))
 same(base, frame("layout_long"), (20, 8, 64, 32))
@@ -43,6 +44,14 @@ for scenario in ("layout_nasdaq", "layout_long", "layout_plan", "msft", "dotted"
     image = frame(scenario)
     assert image.crop((20, 0, 64, 8)).getbbox()[0] == 0, scenario
     assert image.crop((63, 0, 64, 32)).getbbox() is None, scenario
+# The recorded Yahoo PLZ.UN quote exercises the real Plaza wordmark, C$5.27,
+# movement, and conservative DELAY status in both unchanged compositions.
+plz = frame("yahoo_plz")
+assert plz.crop((0, 0, 20, 24)).getbbox() is not None
+assert plz.crop((36, 25, 64, 32)).getbbox() is not None
+with Image.open(root / "ticker-yahoo_plz.webp") as ticker_plz:
+    assert ticker_plz.size == (64, 32)
+    assert ticker_plz.crop((0, 0, 20, 32)).getbbox() is not None
 # Ticker uses variable measured widths; the five-pixel gap is verified by
 # test_animation.py. Compare mixed-card content before the next item enters.
 widths = json.loads((root / "ticker-layout_mixed.widths.json").read_text().split("] ", 1)[1])

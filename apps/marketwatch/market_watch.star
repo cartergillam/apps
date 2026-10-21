@@ -43,7 +43,7 @@ def card_text(value, width, height, color, font = FONT):
 def quote_card(quote, config):
     error = quote.get("errorCode", "")
     error_words = quote_error(error).split(" ") if error else []
-    value = price(number(quote.get("price")))
+    value = quote_price(quote)
     return render.Box(width = 64, height = 32, child = render.Row(main_align = "start", children = [
         render.Box(width = 20, height = 32, child = render.Column(children = [
             render.Box(width = 20, height = 24, child = company_mark(quote)),
@@ -90,8 +90,8 @@ def ticker(quotes, config):
 def ticker_item(quote, config):
     error = quote.get("errorCode", "")
     symbol = short(display_symbol(text(quote.get("symbol"), "?")), 10)
-    value = price(number(quote.get("price")))
-    compact_errors = {"provider_entitlement_required": "PLAN", "provider_credential_invalid": "KEY", "invalid_symbol": "BAD SYMBOL", "provider_rate_limited": "LIMITED", "provider_response_invalid": "BAD DATA"}
+    value = quote_price(quote)
+    compact_errors = {"provider_entitlement_required": "PLAN", "provider_credential_invalid": "KEY", "invalid_symbol": "BAD SYMBOL", "provider_rate_limited": "LIMITED", "provider_response_invalid": "BAD DATA", "provider_network_error": "NETWORK", "provider_temporarily_unavailable": "UNAVAILABLE"}
     fields = [
         render.Text(content = symbol, font = FONT, color = "#ffffff"),
         render.Text(content = compact_errors.get(error, "ERROR") if error else short(value, 10), font = FONT if error or len(value) > 7 else "tb-8", color = "#ffb454" if error else "#ffffff"),
@@ -122,6 +122,8 @@ def quote_error(code):
         "listing_mismatch": "CHECK LISTING",
         "provider_rate_limited": "RATE LIMITED",
         "provider_response_invalid": "BAD RESPONSE",
+        "provider_network_error": "NETWORK ERROR",
+        "provider_temporarily_unavailable": "TEMPORARILY UNAVAILABLE",
     }.get(code, "PROVIDER ERROR")
 
 def company_mark(quote):
@@ -194,6 +196,10 @@ def price(value):
     if value >= 10000:
         return decimal2(value / 1000) + "K"
     return decimal2(value)
+
+def quote_price(quote):
+    value = price(number(quote.get("price")))
+    return "C$" + value if quote.get("currency") == "CAD" else value
 
 def signed(value):
     return ("+" if value >= 0 else "") + decimal2(value)
@@ -277,6 +283,8 @@ def fixture_data(scenario):
         if scenario == "layout_mixed":
             return json.encode([apple, json.decode(fixture_data("msft"))[0], json.decode(fixture_data("canadian_plan"))[0]])
         return json.encode([apple])
+    if scenario == "yahoo_plz":
+        return '''[{"symbol":"PLZ.UN","displayName":"Plaza Retail REIT","price":5.27,"previousClose":5.28,"absoluteChange":-0.01,"percentageChange":-0.1893939,"exchange":"Toronto Stock Exchange","mic":"XTSE","currency":"CAD","marketStatus":"unknown","quoteTimestamp":"2026-10-19T17:59:19Z","providerUpdated":"2026-10-19T17:59:19Z","delayed":true,"stale":false,"logoData":"iVBORw0KGgoAAAANSUhEUgAAABIAAAAHCAYAAAAF1R1/AAAARklEQVR42qWQUQ7AMAhCkfvf+e3Xkpq1Gz9AjBEpQAEklS7hlzmn3s0wJJuWF3Z7I1nNEz41ni40nZ2x0VWbsj/BP3aXBA8enRr8JjDg7AAAAABJRU5ErkJggg=="}]'''
     if scenario in ["aapl", "five", "two", "unchanged", "long", "same_company", "logo_absent", "mixed_plan", "aapl_closed", "aapl_stale", "msft", "five_open", "five_closed", "ten", "dotted", "canadian_plan"]:
         apple = json.decode(OPEN_QUOTE_FIXTURE)[0]
         apple["logoData"] = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABFElEQVR4nKyTPS8EURSG34NW4yNEo1QpViIqFBJBKdH4CUrxD9R+gUQiau1G66PQiKg0tpAlIlH5aBQeudltdnfuvXMy85Qz9z7nPefMDKlmXEJgBXgCDipXBhaBLzps1iG86MqugOGqslHgGWgCY6mzFhHMSdqVNCPpVlJT0rikWUnrkiYl3Uk6NbOPXJod4Ide3oBHBmkBjZRsHvgsuBjjHVhKCU8cssBWrt2WQ/YADOyg/8OeSFbs5cXMyAl/HcLpoof9wrZD2ACWc8IbhzDM7xhYiJ4AVoE/56bb0YRmdinp2pEycJ58C6w50oX/eypbEjgqKdwu1QMwApx1L90De8AGcAi8At/AfumhVOE/AAD//0hOz+c8BA+LAAAAAElFTkSuQmCC"
