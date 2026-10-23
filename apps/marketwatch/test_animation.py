@@ -6,7 +6,7 @@ import json
 from PIL import Image, ImageChops
 
 root = Path(sys.argv[1])
-counts = {"density_short": 1, "density_two": 2, "density_five": 5, "density_ten": 10, "layout_nasdaq": 1, "layout_nyse": 1, "layout_tsx": 1, "layout_cad": 1, "layout_long": 1, "layout_missing": 1, "layout_plan": 1, "layout_mixed": 3, "ten": 10, "dotted": 1, "canadian_plan": 1, "aapl": 1, "two": 2, "five": 5, "same_company": 2, "long": 1, "mixed_plan": 2, "aapl_closed": 1, "aapl_stale": 1, "msft": 1, "five_open": 5, "five_closed": 5}
+counts = {"density_short": 1, "density_two": 2, "density_five": 5, "density_ten": 10, "layout_nasdaq": 1, "layout_nyse": 1, "layout_tsx": 1, "layout_cad": 1, "layout_long": 1, "layout_missing": 1, "layout_plan": 1, "layout_mixed": 3, "yahoo_plz": 1, "ten": 10, "dotted": 1, "canadian_plan": 1, "aapl": 1, "two": 2, "five": 5, "same_company": 2, "long": 1, "mixed_plan": 2, "aapl_closed": 1, "aapl_stale": 1, "msft": 1, "five_open": 5, "five_closed": 5}
 for scenario, count in counts.items():
     path = root / f"ticker-{scenario}.webp"
     with Image.open(path) as image:

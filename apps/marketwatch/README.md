@@ -2,7 +2,7 @@
 
 Candidate Tronbyt app for server-managed Twelve Data quotes. The server injects
 sanitized quote JSON at render time; this Pixlet app never receives a provider
-credential. It accepts one to ten unique comma-separated symbols, including
+credential. It accepts one to eight unique comma-separated symbols, including
 exchange-qualified symbols such as `SHOP:TSX`.
 
 New installations default to `AAPL`, which is suitable for initial Basic-plan
@@ -20,21 +20,25 @@ Physical error frames are intentionally specific and sanitized: `SETUP
 REQUIRED`, `INVALID KEY`, `PLAN REQUIRED`, `BAD SYMBOL`, `RATE LIMITED`, and
 `PROVIDER ERROR`. Provider messages and credentials are never passed to Pixlet.
 
-The server shares individual listing snapshots within credential owner scope,
-independent of mode, stock order, device or installation. OPEN target freshness is
-five minutes (six for watchlists above eight listings); CLOSED/unknown freshness is 60 minutes. Confirmed closing quotes
+The server shares individual listing snapshots within authorized credential
+scope, independent of mode, stock order, device or installation. Its default
+quota policy allows at most eight symbols, refreshes OPEN quotes no more often
+than every 15 minutes, and refreshes CLOSED/unknown quotes no more often than
+every 60 minutes. Confirmed closing quotes
 for known North American venues can persist until the next weekday opening.
 Last-known-good quotes remain available for 72 additional hours as STALE.
 Search caches for 24 hours. Remote logos cache for 30 days; Apple and Microsoft
 use approved bundled transparent overrides on the server, with no provider logo
 calls. Provider errors and quota deferrals do not restart refreshes per render.
 
-Ten symbols at a conservative six-minute cadence over a 6.5-hour session use approximately
-650 quote credits, plus a few initial/closing snapshots. Batches save HTTP calls,
-not per-symbol credits. The server reserves Basic-plan minute credits, observes
-normal response credit headers, and retains local daily headroom for search,
-validation and retries. See server `internal/providers/MARKET_WATCH_QUOTA.md` for
-budget limits, market/session caveats and process-cache lifetime.
+The server caps Twelve Data reservations at 500 credits/day, six credits/minute,
+and 16 distinct newly requested quote symbols/day per underlying API key. Two
+eight-symbol displays sharing that key use at most about 416 quote credits during
+a normal 6.5-hour OPEN session when their listings are disjoint, before other
+billable calls; the hard 500-credit reservation budget pauses further provider
+requests when needed. Batches save HTTP calls, not per-symbol credits. See server
+`internal/providers/MARKET_WATCH_QUOTA.md` for budget limits, market/session
+caveats and persistence behavior.
 
 Ticker timing remains 55 ms per one-pixel step. Focus keeps its fixed 64×32
 composition. Ticker uses actual measured text widths: fixed 20px logo canvas,
